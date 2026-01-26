@@ -173,6 +173,8 @@ int app_run(int argc, char **argv) {
   char status[128] = {0};
   int has_lyrics = 0;
   int anim_frame = 0;
+  int last_current_index = -1;
+  int pulse_frames = 0;
   int parse_result;
 
   parse_result = args_parse(&args, argc, argv);
@@ -212,9 +214,12 @@ int app_run(int argc, char **argv) {
         strcmp(track.title, last_title) != 0) {
       free_lyrics(&lyrics_text, &doc);
       rendered_for_track = 0;
+      last_current_index = -1;
+      pulse_frames = 0;
+      anim_frame = 0;
       snprintf(status, sizeof(status), "%s", "Loading lyrics...");
       renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                    track.is_paused ? "⏸" : "♪");
+                    track.is_paused ? "⏸" : "♪", 0);
       status[0] = '\0';
       lyrics_text = lyrics_cache_load(track.artist, track.title);
       if (!lyrics_text) {
@@ -259,24 +264,34 @@ int app_run(int argc, char **argv) {
     }
 
     if (args.once) {
+      int current_index = -1;
+      int pulse = 0;
       const char *icon = track.is_paused ? "⏸" : "♪";
       int music_only = track.is_playing && !track.is_paused &&
                        is_music_only_section(doc, track.elapsed);
+      if (doc && doc->has_timestamps) {
+        current_index = lyrics_find_current(doc, track.elapsed);
+        if (current_index >= 0 && current_index != last_current_index) {
+          pulse_frames = 2;
+          last_current_index = current_index;
+        }
+      }
+      pulse = pulse_frames > 0;
       if (music_only) {
         static const char *frames[] = {"♪    ", " ♪   ", "  ♪  ", "   ♪ ", "    ♪"};
         snprintf(status, sizeof(status), "%s", frames[anim_frame % 5]);
         renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      icon);
+                      icon, 0);
       } else if (doc && doc->has_timestamps) {
         renderer_draw(track.artist, track.title, doc,
                       lyrics_find_current(doc, track.elapsed), track.elapsed,
-                      status, icon);
+                      status, icon, pulse);
       } else if (doc && doc->count > 0 && args.show_plain) {
         renderer_draw(track.artist, track.title, doc, -1, track.elapsed, status,
-                      icon);
+                      icon, 0);
       } else {
         renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      icon);
+                      icon, 0);
       }
       break;
     }
@@ -286,24 +301,34 @@ int app_run(int argc, char **argv) {
       static const char *frames[] = {"♪    ", " ♪   ", "  ♪  ", "   ♪ ", "    ♪"};
       snprintf(status, sizeof(status), "%s", frames[anim_frame % 5]);
       renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                    "♪");
+                    "♪", 0);
     } else if (doc && doc->has_timestamps) {
+      int current_index = lyrics_find_current(doc, track.elapsed);
+      int pulse = 0;
+      if (current_index >= 0 && current_index != last_current_index) {
+        pulse_frames = 2;
+        last_current_index = current_index;
+      }
+      pulse = pulse_frames > 0;
       renderer_draw(track.artist, track.title, doc,
-                    lyrics_find_current(doc, track.elapsed), track.elapsed,
-                    status, track.is_paused ? "⏸" : "♪");
+                    current_index, track.elapsed, status,
+                    track.is_paused ? "⏸" : "♪", pulse);
     } else if (!rendered_for_track || last_paused != track.is_paused) {
       if (doc && doc->count > 0 && args.show_plain) {
         renderer_draw(track.artist, track.title, doc, -1, track.elapsed, status,
-                      track.is_paused ? "⏸" : "♪");
+                      track.is_paused ? "⏸" : "♪", 0);
       } else {
         renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      track.is_paused ? "⏸" : "♪");
+                      track.is_paused ? "⏸" : "♪", 0);
       }
       rendered_for_track = 1;
     }
 
     if (!track.is_paused) {
       anim_frame++;
+      if (pulse_frames > 0) {
+        pulse_frames--;
+      }
     }
 
     last_paused = track.is_paused;
