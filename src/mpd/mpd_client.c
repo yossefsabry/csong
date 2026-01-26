@@ -129,6 +129,8 @@ int mpd_client_get_current(mpd_track *out) {
 
   state = mpd_status_get_state(status);
   out->is_playing = (state == MPD_STATE_PLAY);
+  out->is_paused = (state == MPD_STATE_PAUSE);
+  out->is_stopped = (state == MPD_STATE_STOP);
   out->elapsed = (double)mpd_status_get_elapsed_time(status);
 
   song = mpd_run_current_song(mpd_conn);

@@ -6,6 +6,8 @@ typedef struct mpd_track {
   char title[256];
   double elapsed;
   int is_playing;
+  int is_paused;
+  int is_stopped;
   int has_song;
 } mpd_track;
 

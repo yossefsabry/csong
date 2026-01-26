@@ -15,16 +15,23 @@ void renderer_clear(void) {
   printf("\033[2J\033[H");
 }
 
-void renderer_draw_status(const char *status) {
+void renderer_draw_status(const char *status, const char *icon) {
   renderer_clear();
+  if (icon && icon[0] != '\0') {
+    printf("%s ", icon);
+  }
   if (status) {
     printf("%s\n", status);
+  } else {
+    printf("\n");
   }
   fflush(stdout);
 }
 
 void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
-                   int current_index, double elapsed) {
+                   int current_index, double elapsed, const char *status,
+                   const char *icon) {
+  int max_lines = 5;
   int context = 2;
   size_t i;
   size_t start;
@@ -32,19 +39,30 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
 
   renderer_clear();
   if (artist && title) {
+    if (icon && icon[0] != '\0') {
+      printf("%s ", icon);
+    }
     printf("%s - %s (", artist, title);
     print_time(elapsed);
     printf(")\n\n");
   }
 
+  if (status && status[0] != '\0') {
+    printf("%s\n\n", status);
+  }
+
   if (!doc || doc->count == 0) {
-    printf("No lyrics found.\n");
+    if (!status || status[0] == '\0') {
+      printf("No lyrics found.\n");
+    }
     fflush(stdout);
     return;
   }
 
   if (!doc->has_timestamps || current_index < 0) {
-    for (i = 0; i < doc->count; i++) {
+    start = 0;
+    end = doc->count > (size_t)max_lines ? (size_t)max_lines - 1 : doc->count - 1;
+    for (i = start; i <= end; i++) {
       printf("%s\n", doc->lines[i].text ? doc->lines[i].text : "");
     }
     fflush(stdout);
@@ -52,9 +70,14 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
   }
 
   start = current_index > context ? (size_t)(current_index - context) : 0;
-  end = (size_t)current_index + context;
+  end = start + (size_t)max_lines - 1;
   if (end >= doc->count) {
     end = doc->count - 1;
+    if (end + 1 > (size_t)max_lines) {
+      start = end - (size_t)max_lines + 1;
+    } else {
+      start = 0;
+    }
   }
 
   for (i = start; i <= end; i++) {

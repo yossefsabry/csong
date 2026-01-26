@@ -26,12 +26,14 @@ Options:
 - `--mpd-port PORT` (default: 6600)
 - `--once` (print once and exit)
 - `--interval N` (seconds between updates, default: 1)
+- `--show-plain` (display untimed lyrics)
 
 ## Notes
 - Stores and reads lyrics in `~/lyrics/`
 - Prefers `Artist - Title.lrc`, then `Artist - Title.txt`
 - If artist is missing, tries `Title.lrc` then `Title.txt`
 - Fetches synced lyrics from lrclib when available; falls back to lyrics.ovh
+- Shows an animated music icon during intros and instrumental gaps (based on LRC)
 
 ## Project layout
 - include/app/: public headers
