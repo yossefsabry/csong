@@ -1,0 +1,195 @@
+#include "app/mpd_client.h"
+#include "app/log.h"
+#include <ctype.h>
+#include <mpd/client.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static struct mpd_connection *mpd_conn;
+
+static void copy_tag(char *dest, size_t dest_size, const char *value) {
+  if (!dest || dest_size == 0) {
+    return;
+  }
+  if (value && value[0] != '\0') {
+    snprintf(dest, dest_size, "%s", value);
+  } else {
+    dest[0] = '\0';
+  }
+}
+
+static void trim_spaces(char *text) {
+  char *end;
+  if (!text || text[0] == '\0') {
+    return;
+  }
+  while (isspace((unsigned char)*text)) {
+    memmove(text, text + 1, strlen(text));
+  }
+  end = text + strlen(text);
+  while (end > text && isspace((unsigned char)end[-1])) {
+    end[-1] = '\0';
+    end--;
+  }
+}
+
+static void basename_from_uri(const char *uri, char *out, size_t out_size) {
+  const char *slash;
+  char *dot;
+
+  if (!uri || !out || out_size == 0) {
+    return;
+  }
+
+  slash = strrchr(uri, '/');
+  if (slash) {
+    snprintf(out, out_size, "%s", slash + 1);
+  } else {
+    snprintf(out, out_size, "%s", uri);
+  }
+
+  dot = strrchr(out, '.');
+  if (dot && dot != out) {
+    *dot = '\0';
+  }
+  trim_spaces(out);
+}
+
+static int split_artist_title(const char *input, char *artist,
+                              size_t artist_size, char *title,
+                              size_t title_size) {
+  const char *sep;
+  if (!input || !artist || !title || artist_size == 0 || title_size == 0) {
+    return 0;
+  }
+
+  sep = strstr(input, " - ");
+  if (!sep) {
+    return 0;
+  }
+
+  snprintf(artist, artist_size, "%.*s", (int)(sep - input), input);
+  snprintf(title, title_size, "%s", sep + 3);
+  trim_spaces(artist);
+  trim_spaces(title);
+  return (artist[0] != '\0' && title[0] != '\0');
+}
+
+int mpd_client_connect(const char *host, int port) {
+  if (mpd_conn) {
+    return 0;
+  }
+
+  mpd_conn = mpd_connection_new(host, port, 30000);
+  if (!mpd_conn) {
+    log_error("mpd: failed to create connection");
+    return -1;
+  }
+
+  if (mpd_connection_get_error(mpd_conn) != MPD_ERROR_SUCCESS) {
+    log_error(mpd_connection_get_error_message(mpd_conn));
+    mpd_connection_free(mpd_conn);
+    mpd_conn = NULL;
+    return -1;
+  }
+
+  return 0;
+}
+
+void mpd_client_disconnect(void) {
+  if (mpd_conn) {
+    mpd_connection_free(mpd_conn);
+    mpd_conn = NULL;
+  }
+}
+
+int mpd_client_get_current(mpd_track *out) {
+  struct mpd_status *status;
+  struct mpd_song *song;
+  enum mpd_state state;
+  const char *tag;
+  const char *uri;
+  char base[256] = {0};
+  char artist_guess[256] = {0};
+  char title_guess[256] = {0};
+  int artist_from_tag = 0;
+  int title_from_tag = 0;
+
+  if (!mpd_conn || !out) {
+    return -1;
+  }
+
+  memset(out, 0, sizeof(*out));
+
+  status = mpd_run_status(mpd_conn);
+  if (!status) {
+    return -1;
+  }
+
+  state = mpd_status_get_state(status);
+  out->is_playing = (state == MPD_STATE_PLAY);
+  out->elapsed = (double)mpd_status_get_elapsed_time(status);
+
+  song = mpd_run_current_song(mpd_conn);
+  if (!song) {
+    out->has_song = 0;
+    mpd_status_free(status);
+    return 0;
+  }
+
+  tag = mpd_song_get_tag(song, MPD_TAG_ARTIST, 0);
+  if (tag && tag[0] != '\0') {
+    copy_tag(out->artist, sizeof(out->artist), tag);
+    artist_from_tag = 1;
+  } else {
+    tag = mpd_song_get_tag(song, MPD_TAG_ALBUM_ARTIST, 0);
+    if (tag && tag[0] != '\0') {
+      copy_tag(out->artist, sizeof(out->artist), tag);
+      artist_from_tag = 1;
+    }
+  }
+
+  tag = mpd_song_get_tag(song, MPD_TAG_TITLE, 0);
+  if (tag && tag[0] != '\0') {
+    copy_tag(out->title, sizeof(out->title), tag);
+    title_from_tag = 1;
+  } else {
+    tag = mpd_song_get_tag(song, MPD_TAG_NAME, 0);
+    if (tag && tag[0] != '\0') {
+      copy_tag(out->title, sizeof(out->title), tag);
+      title_from_tag = 1;
+    }
+  }
+
+  uri = mpd_song_get_uri(song);
+  if (uri && uri[0] != '\0') {
+    basename_from_uri(uri, base, sizeof(base));
+  }
+
+  if (base[0] != '\0') {
+    if (split_artist_title(base, artist_guess, sizeof(artist_guess),
+                           title_guess, sizeof(title_guess))) {
+      if (!artist_from_tag) {
+        copy_tag(out->artist, sizeof(out->artist), artist_guess);
+      }
+      if (!title_from_tag) {
+        copy_tag(out->title, sizeof(out->title), title_guess);
+      }
+    } else if (!title_from_tag && out->title[0] == '\0') {
+      copy_tag(out->title, sizeof(out->title), base);
+    }
+  }
+
+  if (out->artist[0] == '\0') {
+    copy_tag(out->artist, sizeof(out->artist), "Unknown Artist");
+  }
+  if (out->title[0] == '\0') {
+    copy_tag(out->title, sizeof(out->title), "Unknown Title");
+  }
+
+  out->has_song = 1;
+  mpd_song_free(song);
+  mpd_status_free(status);
+  return 0;
+}

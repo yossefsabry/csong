@@ -1,0 +1,17 @@
+title = "csong"
+font = "Sans 12"
+color = "#f3f0e8"
+opacity = 0.85
+anchor = "top-right"
+offset_x = 24
+offset_y = 24
+workspace = "all"
+screen = "primary"
+
+[mpd]
+host = "127.0.0.1"
+port = 6600
+
+[lyrics]
+provider = "auto"
+cache_dir = "~/.cache/csong"
