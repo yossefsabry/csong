@@ -1,6 +1,6 @@
 CC ?= gcc
-CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Iinclude -D_POSIX_C_SOURCE=200809L
-LDFLAGS ?= -lmpdclient -lcurl
+CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Iinclude -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700
+LDFLAGS ?= -lmpdclient -lcurl -lm
 
 BIN := csong
 

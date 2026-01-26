@@ -34,6 +34,12 @@ Options:
 - If artist is missing, tries `Title.lrc` then `Title.txt`
 - Fetches synced lyrics from lrclib when available; falls back to lyrics.ovh
 - Shows an animated music icon during intros and instrumental gaps (based on LRC)
+- Supports LRC `[offset:+/-ms]` tags
+- Optional per-track offsets in `~/lyrics/.offsets`:
+  ```
+  Dua Lipa - Houdini = -4.0
+  Houdini = -4.0
+  ```
 
 ## Project layout
 - include/app/: public headers

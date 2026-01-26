@@ -66,12 +66,37 @@ static int compare_lines(const void *a, const void *b) {
   return 0;
 }
 
+static int parse_offset_tag(const char *line, int *out_ms) {
+  const char *p;
+  char *endptr;
+  long value;
+
+  if (!line || !out_ms) {
+    return 0;
+  }
+
+  p = strstr(line, "[offset:");
+  if (!p) {
+    return 0;
+  }
+
+  p += 8;
+  value = strtol(p, &endptr, 10);
+  if (!endptr || *endptr != ']') {
+    return 0;
+  }
+
+  *out_ms = (int)value;
+  return 1;
+}
+
 lyrics_doc *lyrics_parse(const char *text) {
   lyrics_doc *doc;
   char *copy;
   char *line;
   char *saveptr;
   int timed;
+  int offset_ms = 0;
 
   if (!text) {
     return NULL;
@@ -98,6 +123,7 @@ lyrics_doc *lyrics_parse(const char *text) {
     char *p = line;
     char *text_start;
     strip_cr(p);
+    parse_offset_tag(p, &offset_ms);
 
     while (*p == '[' && time_count < 8) {
       double t;
@@ -147,6 +173,19 @@ lyrics_doc *lyrics_parse(const char *text) {
   }
 
   free(copy);
+
+  if (offset_ms != 0 && doc->count > 0) {
+    size_t i;
+    double shift = (double)offset_ms / 1000.0;
+    for (i = 0; i < doc->count; i++) {
+      if (doc->lines[i].has_time) {
+        doc->lines[i].time += shift;
+        if (doc->lines[i].time < 0.0) {
+          doc->lines[i].time = 0.0;
+        }
+      }
+    }
+  }
 
   if (doc->has_timestamps && doc->count > 1) {
     qsort(doc->lines, doc->count, sizeof(*doc->lines), compare_lines);

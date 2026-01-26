@@ -19,8 +19,8 @@ char *lyrics_cache_load(const char *artist, const char *title);
 int lyrics_cache_store(const char *artist, const char *title, const char *text,
                        int timed);
 
-int lyrics_fetch(const char *artist, const char *title, char **out_text,
-                 int *out_timed);
+int lyrics_fetch(const char *artist, const char *title, double duration,
+                 char **out_text, int *out_timed);
 
 lyrics_doc *lyrics_parse(const char *text);
 void lyrics_free(lyrics_doc *doc);

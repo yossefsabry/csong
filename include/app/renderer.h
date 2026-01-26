@@ -8,7 +8,8 @@ void renderer_clear(void);
 void renderer_draw_status(const char *status, const char *icon);
 void renderer_draw(const char *artist, const char *title,
                    const lyrics_doc *doc, int current_index, double elapsed,
-                   const char *status, const char *icon, int pulse);
+                   const char *status, const char *icon, int pulse,
+                   int prev_index, int transition_step, int transition_total);
 void renderer_shutdown(void);
 
 #endif

@@ -48,12 +48,15 @@ void renderer_draw_status(const char *status, const char *icon) {
 
 void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
                    int current_index, double elapsed, const char *status,
-                   const char *icon, int pulse) {
+                   const char *icon, int pulse, int prev_index,
+                   int transition_step, int transition_total) {
   int max_lines = 5;
   int context = 2;
   size_t i;
   size_t start;
   size_t end;
+  int is_transition = 0;
+  float t = 1.0f;
 
   renderer_clear();
   if (artist && title) {
@@ -79,6 +82,18 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
     }
     fflush(stdout);
     return;
+  }
+
+  if (transition_total > 1 && prev_index >= 0 && current_index >= 0 &&
+      prev_index != current_index) {
+    is_transition = 1;
+    if (transition_step < 0) {
+      transition_step = 0;
+    }
+    if (transition_step >= transition_total) {
+      transition_step = transition_total - 1;
+    }
+    t = (float)transition_step / (float)(transition_total - 1);
   }
 
   if (!doc->has_timestamps || current_index < 0) {
@@ -107,9 +122,21 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
   for (i = start; i <= end; i++) {
     const char *text = doc->lines[i].text ? doc->lines[i].text : "";
     if ((int)i == current_index) {
-      style_color(255, 255, 255);
-      style_bold(pulse);
+      int curr_base = 210;
+      int curr_max = 255;
+      int curr_color = is_transition ? (int)(curr_base + (curr_max - curr_base) * t)
+                                      : 255;
+      style_color(curr_color, curr_color, curr_color);
+      style_bold(is_transition ? (t > 0.6f) : pulse);
       printf("> %s\n", text);
+      style_reset();
+    } else if (is_transition && (int)i == prev_index) {
+      int prev_min = 140;
+      int prev_max = 255;
+      int prev_color = (int)(prev_max + (prev_min - prev_max) * t);
+      style_color(prev_color, prev_color, prev_color);
+      style_bold(0);
+      printf("  %s\n", text);
       style_reset();
     } else {
       style_color(140, 140, 140);

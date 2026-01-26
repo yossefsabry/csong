@@ -132,6 +132,7 @@ int mpd_client_get_current(mpd_track *out) {
   out->is_paused = (state == MPD_STATE_PAUSE);
   out->is_stopped = (state == MPD_STATE_STOP);
   out->elapsed = (double)mpd_status_get_elapsed_time(status);
+  out->duration = 0.0;
 
   song = mpd_run_current_song(mpd_conn);
   if (!song) {
@@ -191,6 +192,9 @@ int mpd_client_get_current(mpd_track *out) {
   }
 
   out->has_song = 1;
+  if (mpd_song_get_duration(song) > 0) {
+    out->duration = (double)mpd_song_get_duration(song);
+  }
   mpd_song_free(song);
   mpd_status_free(status);
   return 0;

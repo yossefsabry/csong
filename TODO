@@ -1,0 +1,10 @@
+- handle multilang
+- handle when i open song when the old song is loaded beacuse it's still showing 
+    lyrics download
+- handle application lyrics for performance and memory
+- check the song lyrics because there is some bugs for songs that is fast lyrics
+- adding buttons for control the song too (maybe)
+- check for connceted with discord
+- adding the UI intergrated with X11
+-- adding the UI for wayland
+- check for windows

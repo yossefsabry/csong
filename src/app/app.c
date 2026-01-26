@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef struct app_args {
@@ -78,6 +79,94 @@ static int line_has_text(const char *text) {
     p++;
   }
   return 0;
+}
+
+static int is_unknown_artist_name(const char *artist) {
+  if (!artist || artist[0] == '\0') {
+    return 1;
+  }
+  return strcmp(artist, "Unknown Artist") == 0;
+}
+
+static void trim_whitespace(char *text) {
+  char *end;
+  if (!text || text[0] == '\0') {
+    return;
+  }
+  while (isspace((unsigned char)*text)) {
+    memmove(text, text + 1, strlen(text));
+  }
+  end = text + strlen(text);
+  while (end > text && isspace((unsigned char)end[-1])) {
+    end[-1] = '\0';
+    end--;
+  }
+}
+
+static double load_track_offset(const char *artist, const char *title) {
+  const char *home = getenv("HOME");
+  FILE *file;
+  char path[512];
+  char line[512];
+  char match[512];
+
+  if (!home || !title) {
+    return 0.0;
+  }
+
+  if (!is_unknown_artist_name(artist)) {
+    snprintf(match, sizeof(match), "%s - %s", artist, title);
+  } else {
+    snprintf(match, sizeof(match), "%s", title);
+  }
+
+  snprintf(path, sizeof(path), "%s/lyrics/.offsets", home);
+  file = fopen(path, "r");
+  if (!file) {
+    return 0.0;
+  }
+
+  while (fgets(line, sizeof(line), file)) {
+    char *eq;
+    char *key;
+    char *val;
+    char *endptr;
+    double seconds;
+
+    if ((unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB &&
+        (unsigned char)line[2] == 0xBF) {
+      memmove(line, line + 3, strlen(line + 3) + 1);
+    }
+
+    trim_whitespace(line);
+    if (line[0] == '\0' || line[0] == '#') {
+      continue;
+    }
+
+    eq = strchr(line, '=');
+    if (!eq) {
+      continue;
+    }
+    *eq = '\0';
+    key = line;
+    val = eq + 1;
+    trim_whitespace(key);
+    trim_whitespace(val);
+
+    if (strcmp(key, match) != 0) {
+      continue;
+    }
+
+    seconds = strtod(val, &endptr);
+    if (endptr == val) {
+      continue;
+    }
+    fclose(file);
+    return seconds;
+  }
+
+  fclose(file);
+  return 0.0;
 }
 
 static int is_music_only_section(const lyrics_doc *doc, double elapsed) {
@@ -175,6 +264,9 @@ int app_run(int argc, char **argv) {
   int anim_frame = 0;
   int last_current_index = -1;
   int pulse_frames = 0;
+  const int transition_total = 7;
+  const int transition_delay_us = 100000;
+  double offset_seconds = 0.0;
   int parse_result;
 
   parse_result = args_parse(&args, argc, argv);
@@ -217,13 +309,14 @@ int app_run(int argc, char **argv) {
       last_current_index = -1;
       pulse_frames = 0;
       anim_frame = 0;
+      offset_seconds = load_track_offset(track.artist, track.title);
       snprintf(status, sizeof(status), "%s", "Loading lyrics...");
       renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                    track.is_paused ? "⏸" : "♪", 0);
+                    track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
       status[0] = '\0';
       lyrics_text = lyrics_cache_load(track.artist, track.title);
       if (!lyrics_text) {
-        if (lyrics_fetch(track.artist, track.title, &lyrics_text,
+        if (lyrics_fetch(track.artist, track.title, track.duration, &lyrics_text,
                          &fetched_timed) == 0) {
           doc = lyrics_parse(lyrics_text);
           if (doc) {
@@ -263,14 +356,19 @@ int app_run(int argc, char **argv) {
       }
     }
 
+    double position = track.elapsed + offset_seconds;
+    if (position < 0.0) {
+      position = 0.0;
+    }
+
     if (args.once) {
       int current_index = -1;
       int pulse = 0;
       const char *icon = track.is_paused ? "⏸" : "♪";
       int music_only = track.is_playing && !track.is_paused &&
-                       is_music_only_section(doc, track.elapsed);
+                       is_music_only_section(doc, position);
       if (doc && doc->has_timestamps) {
-        current_index = lyrics_find_current(doc, track.elapsed);
+        current_index = lyrics_find_current(doc, position);
         if (current_index >= 0 && current_index != last_current_index) {
           pulse_frames = 2;
           last_current_index = current_index;
@@ -281,45 +379,64 @@ int app_run(int argc, char **argv) {
         static const char *frames[] = {"♪    ", " ♪   ", "  ♪  ", "   ♪ ", "    ♪"};
         snprintf(status, sizeof(status), "%s", frames[anim_frame % 5]);
         renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      icon, 0);
+                      icon, 0, -1, 0, 0);
       } else if (doc && doc->has_timestamps) {
         renderer_draw(track.artist, track.title, doc,
-                      lyrics_find_current(doc, track.elapsed), track.elapsed,
-                      status, icon, pulse);
+                      current_index, track.elapsed,
+                      status, icon, pulse, -1, 0, 0);
       } else if (doc && doc->count > 0 && args.show_plain) {
         renderer_draw(track.artist, track.title, doc, -1, track.elapsed, status,
-                      icon, 0);
+                      icon, 0, -1, 0, 0);
       } else {
         renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      icon, 0);
+                      icon, 0, -1, 0, 0);
       }
       break;
     }
 
     if (track.is_playing && !track.is_paused &&
-        is_music_only_section(doc, track.elapsed)) {
+        is_music_only_section(doc, position)) {
       static const char *frames[] = {"♪    ", " ♪   ", "  ♪  ", "   ♪ ", "    ♪"};
       snprintf(status, sizeof(status), "%s", frames[anim_frame % 5]);
       renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                    "♪", 0);
+                    "♪", 0, -1, 0, 0);
     } else if (doc && doc->has_timestamps) {
-      int current_index = lyrics_find_current(doc, track.elapsed);
+      int current_index = lyrics_find_current(doc, position);
       int pulse = 0;
+      int prev_index = last_current_index;
+      int do_transition = 0;
       if (current_index >= 0 && current_index != last_current_index) {
         pulse_frames = 2;
+        if (!track.is_paused && prev_index >= 0) {
+          do_transition = 1;
+        }
         last_current_index = current_index;
       }
       pulse = pulse_frames > 0;
-      renderer_draw(track.artist, track.title, doc,
-                    current_index, track.elapsed, status,
-                    track.is_paused ? "⏸" : "♪", pulse);
+      if (do_transition) {
+        int step;
+        for (step = 0; step < transition_total; step++) {
+          struct timespec ts;
+          renderer_draw(track.artist, track.title, doc, current_index,
+                        track.elapsed, status,
+                        track.is_paused ? "⏸" : "♪", 1, prev_index, step,
+                        transition_total);
+          ts.tv_sec = 0;
+          ts.tv_nsec = (long)transition_delay_us * 1000L;
+          nanosleep(&ts, NULL);
+        }
+      } else {
+        renderer_draw(track.artist, track.title, doc, current_index,
+                      track.elapsed, status,
+                      track.is_paused ? "⏸" : "♪", pulse, -1, 0, 0);
+      }
     } else if (!rendered_for_track || last_paused != track.is_paused) {
       if (doc && doc->count > 0 && args.show_plain) {
         renderer_draw(track.artist, track.title, doc, -1, track.elapsed, status,
-                      track.is_paused ? "⏸" : "♪", 0);
+                      track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
       } else {
         renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      track.is_paused ? "⏸" : "♪", 0);
+                      track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
       }
       rendered_for_track = 1;
     }
