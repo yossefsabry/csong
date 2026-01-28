@@ -1,7 +1,15 @@
 #include "app/renderer.h"
 #include "app/text_layout.h"
+#include "app/unicode.h"
+#include <locale.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+static int g_rtl_mode = UNICODE_RTL_AUTO;
+static int g_rtl_align = UNICODE_RTL_ALIGN_LEFT;
+static int g_rtl_shape = UNICODE_RTL_SHAPE_AUTO;
+static int g_bidi_mode = UNICODE_BIDI_FRIBIDI;
 
 static void style_reset(void) {
   printf("\033[0m");
@@ -48,21 +56,87 @@ static void render_wrapped(const char *text, const char *prefix,
   }
 
   for (i = 0; i < lines.count; i++) {
+    char *visual = NULL;
+    int is_rtl = 0;
+    const char *line_text = lines.lines[i];
+    int align_right = 0;
+    int padding = 0;
+
+    if (unicode_visual_order(line_text, g_rtl_mode, g_rtl_shape, g_bidi_mode,
+                             &visual, &is_rtl) == 0 && visual) {
+      line_text = visual;
+    }
+
+    if (g_rtl_align == UNICODE_RTL_ALIGN_RIGHT) {
+      align_right = 1;
+    }
+
+    if (align_right && content_width > 0) {
+      int line_width = unicode_display_width(line_text);
+      if (line_width < content_width) {
+        padding = content_width - line_width;
+      }
+    }
+
     style_color(r, g, b);
     style_bold(bold);
     if (i == 0) {
-      printf("%s%s\n", prefix, lines.lines[i]);
+      if (g_bidi_mode == UNICODE_BIDI_TERMINAL) {
+        char *wrapped = NULL;
+        if (unicode_wrap_with_lrm(prefix, &wrapped) == 0 && wrapped) {
+          printf("%s", wrapped);
+          free(wrapped);
+        } else {
+          printf("%s", prefix);
+        }
+      } else {
+        printf("%s", prefix);
+      }
     } else {
-      printf("%s%s\n", indent, lines.lines[i]);
+      if (g_bidi_mode == UNICODE_BIDI_TERMINAL) {
+        char *wrapped = NULL;
+        if (unicode_wrap_with_lrm(indent, &wrapped) == 0 && wrapped) {
+          printf("%s", wrapped);
+          free(wrapped);
+        } else {
+          printf("%s", indent);
+        }
+      } else {
+        printf("%s", indent);
+      }
+    }
+    if (padding > 0) {
+      printf("%*s", padding, "");
+    }
+    if (g_bidi_mode == UNICODE_BIDI_FRIBIDI) {
+      char *wrapped = NULL;
+      if (unicode_wrap_with_lro(line_text, &wrapped) == 0 && wrapped) {
+        printf("%s\n", wrapped);
+        free(wrapped);
+      } else {
+        printf("%s\n", line_text);
+      }
+    } else {
+      printf("%s\n", line_text);
     }
     style_reset();
+
+    free(visual);
   }
 
   text_layout_free(&lines);
 }
 
 int renderer_init(void) {
+  setlocale(LC_CTYPE, "");
   return 0;
+}
+
+void renderer_set_rtl(int rtl_mode, int rtl_align, int rtl_shape, int bidi_mode) {
+  g_rtl_mode = rtl_mode;
+  g_rtl_align = rtl_align;
+  g_rtl_shape = rtl_shape;
+  g_bidi_mode = bidi_mode;
 }
 
 void renderer_clear(void) {
@@ -75,9 +149,27 @@ void renderer_draw_status(const char *status, const char *icon) {
     printf("%s ", icon);
   }
   if (status) {
+    char *visual = NULL;
+    int is_rtl = 0;
+    const char *text = status;
+    if (unicode_visual_order(status, g_rtl_mode, g_rtl_shape, g_bidi_mode,
+                             &visual, &is_rtl) == 0 && visual) {
+      text = visual;
+    }
     style_color(120, 120, 120);
-    printf("%s\n", status);
+    if (g_bidi_mode == UNICODE_BIDI_FRIBIDI) {
+      char *wrapped = NULL;
+      if (unicode_wrap_with_lro(text, &wrapped) == 0 && wrapped) {
+        printf("%s\n", wrapped);
+        free(wrapped);
+      } else {
+        printf("%s\n", text);
+      }
+    } else {
+      printf("%s\n", text);
+    }
     style_reset();
+    free(visual);
   } else {
     printf("\n");
   }
@@ -101,18 +193,56 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
 
   renderer_clear();
   if (artist && title) {
+    char header[768];
+    char *visual = NULL;
+    const char *header_text = NULL;
     if (icon && icon[0] != '\0') {
       printf("%s ", icon);
     }
-    printf("%s - %s (", artist, title);
+    snprintf(header, sizeof(header), "%s - %s", artist, title);
+    if (unicode_visual_order(header, g_rtl_mode, g_rtl_shape, g_bidi_mode,
+                             &visual, NULL) == 0 && visual) {
+      header_text = visual;
+    } else {
+      header_text = header;
+    }
+    if (g_bidi_mode == UNICODE_BIDI_FRIBIDI) {
+      char *wrapped = NULL;
+      if (unicode_wrap_with_lro(header_text, &wrapped) == 0 && wrapped) {
+        printf("%s (", wrapped);
+        free(wrapped);
+      } else {
+        printf("%s (", header_text);
+      }
+    } else {
+      printf("%s (", header_text);
+    }
     print_time(elapsed);
     printf(")\n\n");
+    free(visual);
   }
 
   if (status && status[0] != '\0') {
+    char *visual = NULL;
+    const char *text = status;
+    if (unicode_visual_order(status, g_rtl_mode, g_rtl_shape, g_bidi_mode,
+                             &visual, NULL) == 0 && visual) {
+      text = visual;
+    }
     style_color(120, 120, 120);
-    printf("%s\n\n", status);
+    if (g_bidi_mode == UNICODE_BIDI_FRIBIDI) {
+      char *wrapped = NULL;
+      if (unicode_wrap_with_lro(text, &wrapped) == 0 && wrapped) {
+        printf("%s\n\n", wrapped);
+        free(wrapped);
+      } else {
+        printf("%s\n\n", text);
+      }
+    } else {
+      printf("%s\n\n", text);
+    }
     style_reset();
+    free(visual);
   }
 
   if (!doc || doc->count == 0) {

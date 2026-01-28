@@ -65,6 +65,44 @@ static void trim_spaces(char *text) {
   }
 }
 
+static void append_text(char *out, size_t out_size, const char *text) {
+  size_t len;
+  size_t avail;
+  size_t copy_len;
+
+  if (!out || out_size == 0 || !text) {
+    return;
+  }
+
+  len = strlen(out);
+  if (len >= out_size - 1) {
+    return;
+  }
+  avail = out_size - 1 - len;
+  copy_len = strnlen(text, avail);
+  memcpy(out + len, text, copy_len);
+  out[len + copy_len] = '\0';
+}
+
+static void append_sep(char *out, size_t out_size, char sep) {
+  size_t len;
+
+  if (!out || out_size == 0) {
+    return;
+  }
+  len = strlen(out);
+  if (len == 0) {
+    return;
+  }
+  if (out[len - 1] == sep) {
+    return;
+  }
+  if (len < out_size - 1) {
+    out[len] = sep;
+    out[len + 1] = '\0';
+  }
+}
+
 static void sanitize_component(const char *in, char *out, size_t out_size) {
   size_t i;
   size_t len = 0;
@@ -128,12 +166,17 @@ static int build_path_artist_title(const char *artist, const char *title,
     ext = ".txt";
   }
 
-  if (g_cache_dir[0] != '\0') {
-    snprintf(out, out_size, "%s/%s - %s%s", base, safe_artist, safe_title, ext);
-  } else {
-    snprintf(out, out_size, "%s/lyrics/%s - %s%s", base, safe_artist, safe_title,
-             ext);
+  out[0] = '\0';
+  append_text(out, out_size, base);
+  append_sep(out, out_size, '/');
+  if (g_cache_dir[0] == '\0') {
+    append_text(out, out_size, "lyrics");
+    append_sep(out, out_size, '/');
   }
+  append_text(out, out_size, safe_artist);
+  append_text(out, out_size, " - ");
+  append_text(out, out_size, safe_title);
+  append_text(out, out_size, ext);
   return 0;
 }
 
@@ -166,11 +209,15 @@ static int build_path_title_only(const char *title, const char *ext, char *out,
     ext = ".txt";
   }
 
-  if (g_cache_dir[0] != '\0') {
-    snprintf(out, out_size, "%s/%s%s", base, safe_title, ext);
-  } else {
-    snprintf(out, out_size, "%s/lyrics/%s%s", base, safe_title, ext);
+  out[0] = '\0';
+  append_text(out, out_size, base);
+  append_sep(out, out_size, '/');
+  if (g_cache_dir[0] == '\0') {
+    append_text(out, out_size, "lyrics");
+    append_sep(out, out_size, '/');
   }
+  append_text(out, out_size, safe_title);
+  append_text(out, out_size, ext);
   return 0;
 }
 

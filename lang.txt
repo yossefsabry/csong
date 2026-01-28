@@ -1,0 +1,30 @@
+Supported Languages (UTF-8)
+
+This app accepts UTF-8 text and renders it in the terminal. What you see depends
+on your terminal and font. The list below reflects the languages/scripts the app
+handles with explicit support, plus common scripts that render well in typical
+monospace fonts.
+
+Explicit RTL support (BiDi reordering + optional Arabic shaping)
+- Arabic
+- Hebrew
+- Persian (Farsi)
+- Urdu
+- Kurdish (Sorani)
+- Pashto
+
+Wide-character (CJK) handling
+- Chinese (Simplified, Traditional)
+- Japanese
+- Korean
+
+Common LTR scripts (UTF-8, no special shaping needed)
+- Latin-based languages (English, Spanish, French, German, Italian, Portuguese, etc.)
+- Cyrillic-based languages (Russian, Ukrainian, Bulgarian, Serbian, etc.)
+- Greek
+
+Notes
+- Any language encoded in UTF-8 can be displayed if your terminal font supports
+  the glyphs.
+- Complex shaping scripts beyond Arabic (e.g., Indic/Thai) depend on your
+  terminal's shaping capabilities and may not render correctly.

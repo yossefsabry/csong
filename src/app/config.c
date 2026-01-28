@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static void trim_spaces(char *text) {
   char *end;
@@ -77,6 +78,10 @@ void config_default(app_config *out) {
   out->interval = 1;
   out->show_plain = 0;
   out->cache_dir[0] = '\0';
+  out->rtl_mode = UNICODE_RTL_AUTO;
+  out->rtl_align = UNICODE_RTL_ALIGN_LEFT;
+  out->rtl_shape = UNICODE_RTL_SHAPE_AUTO;
+  out->bidi_mode = UNICODE_BIDI_FRIBIDI;
 }
 
 static void apply_toml_string(char *dest, size_t dest_size, toml_datum_t value) {
@@ -86,6 +91,69 @@ static void apply_toml_string(char *dest, size_t dest_size, toml_datum_t value) 
   snprintf(dest, dest_size, "%s", value.u.s);
   trim_spaces(dest);
   free(value.u.s);
+}
+
+static int parse_rtl_mode(const char *value, int fallback) {
+  if (!value) {
+    return fallback;
+  }
+  if (strcasecmp(value, "auto") == 0) {
+    return UNICODE_RTL_AUTO;
+  }
+  if (strcasecmp(value, "on") == 0 || strcasecmp(value, "rtl") == 0 ||
+      strcasecmp(value, "true") == 0) {
+    return UNICODE_RTL_ON;
+  }
+  if (strcasecmp(value, "off") == 0 || strcasecmp(value, "ltr") == 0 ||
+      strcasecmp(value, "false") == 0) {
+    return UNICODE_RTL_OFF;
+  }
+  return fallback;
+}
+
+static int parse_rtl_align(const char *value, int fallback) {
+  if (!value) {
+    return fallback;
+  }
+  if (strcasecmp(value, "auto") == 0) {
+    return UNICODE_RTL_ALIGN_AUTO;
+  }
+  if (strcasecmp(value, "left") == 0) {
+    return UNICODE_RTL_ALIGN_LEFT;
+  }
+  if (strcasecmp(value, "right") == 0) {
+    return UNICODE_RTL_ALIGN_RIGHT;
+  }
+  return fallback;
+}
+
+static int parse_rtl_shape(const char *value, int fallback) {
+  if (!value) {
+    return fallback;
+  }
+  if (strcasecmp(value, "auto") == 0) {
+    return UNICODE_RTL_SHAPE_AUTO;
+  }
+  if (strcasecmp(value, "on") == 0 || strcasecmp(value, "true") == 0) {
+    return UNICODE_RTL_SHAPE_ON;
+  }
+  if (strcasecmp(value, "off") == 0 || strcasecmp(value, "false") == 0) {
+    return UNICODE_RTL_SHAPE_OFF;
+  }
+  return fallback;
+}
+
+static int parse_bidi_mode(const char *value, int fallback) {
+  if (!value) {
+    return fallback;
+  }
+  if (strcasecmp(value, "fribidi") == 0) {
+    return UNICODE_BIDI_FRIBIDI;
+  }
+  if (strcasecmp(value, "terminal") == 0) {
+    return UNICODE_BIDI_TERMINAL;
+  }
+  return fallback;
 }
 
 int config_load(const char *path, app_config *out) {
@@ -146,6 +214,33 @@ int config_load(const char *path, app_config *out) {
         snprintf(out->cache_dir, sizeof(out->cache_dir), "%s", value.u.s);
         trim_spaces(out->cache_dir);
       }
+      free(value.u.s);
+    }
+  }
+
+  table = toml_table_in(root, "render");
+  if (table) {
+    value = toml_string_in(table, "rtl_mode");
+    if (value.ok && value.u.s) {
+      out->rtl_mode = parse_rtl_mode(value.u.s, out->rtl_mode);
+      free(value.u.s);
+    }
+
+    value = toml_string_in(table, "rtl_align");
+    if (value.ok && value.u.s) {
+      out->rtl_align = parse_rtl_align(value.u.s, out->rtl_align);
+      free(value.u.s);
+    }
+
+    value = toml_string_in(table, "rtl_shape");
+    if (value.ok && value.u.s) {
+      out->rtl_shape = parse_rtl_shape(value.u.s, out->rtl_shape);
+      free(value.u.s);
+    }
+
+    value = toml_string_in(table, "bidi");
+    if (value.ok && value.u.s) {
+      out->bidi_mode = parse_bidi_mode(value.u.s, out->bidi_mode);
       free(value.u.s);
     }
   }

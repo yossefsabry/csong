@@ -1,4 +1,4 @@
 #!/bin/bash
 
 
-make clean; make all; ./csong
+make clean; make all

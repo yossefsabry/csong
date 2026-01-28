@@ -2,6 +2,12 @@ title = "csong"
 interval = 1
 show_plain = false
 font = "Sans 12"
+
+[render]
+bidi = "fribidi"
+rtl_mode = "auto"
+rtl_align = "left"
+rtl_shape = "auto"
 color = "#f3f0e8"
 opacity = 0.85
 anchor = "top-right"

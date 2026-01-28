@@ -10,6 +10,7 @@ Terminal lyrics viewer for MPD/ncmpcpp (X11 overlay planned).
 ## Dependencies
 - libmpdclient
 - libcurl
+- libfribidi
 
 ## Build (GCC + Make)
 ```sh
@@ -49,6 +50,13 @@ Options:
   - `show_plain` (boolean)
   - `[mpd].host`, `[mpd].port`
   - `[lyrics].cache_dir` (overrides default `~/lyrics` cache)
+  - `[render].bidi` (`fribidi`, `terminal`)
+  - `[render].rtl_mode` (`auto`, `on`, `off`)
+  - `[render].rtl_align` (`left`, `right`)
+  - `[render].rtl_shape` (`auto`, `on`, `off`)
+
+If Arabic words look reversed, set `[render].bidi = "fribidi"` (default) so the
+app locks visual order and avoids double BiDi from terminals.
 
 ## Project layout
 - include/app/: public headers

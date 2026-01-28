@@ -1,9 +1,11 @@
 #include "app/lyrics.h"
 #include "app/log.h"
+#include "app/unicode.h"
 #include <curl/curl.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <strings.h>
 
@@ -29,6 +31,19 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
   buf->size += total;
   buf->data[buf->size] = '\0';
   return total;
+}
+
+static int hex_value(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return 10 + (c - 'a');
+  }
+  if (c >= 'A' && c <= 'F') {
+    return 10 + (c - 'A');
+  }
+  return -1;
 }
 
 static char *json_unescape_range(const char *input, size_t len) {
@@ -70,9 +85,41 @@ static char *json_unescape_range(const char *input, size_t len) {
           break;
         case 'u':
           if (i + 4 < len) {
-            out[out_len++] = '?';
-            i += 4;
+            int h1 = hex_value(input[i + 1]);
+            int h2 = hex_value(input[i + 2]);
+            int h3 = hex_value(input[i + 3]);
+            int h4 = hex_value(input[i + 4]);
+            uint32_t codepoint;
+            size_t wrote = 0;
+            char buffer[4];
+            if (h1 >= 0 && h2 >= 0 && h3 >= 0 && h4 >= 0) {
+              codepoint = (uint32_t)((h1 << 12) | (h2 << 8) | (h3 << 4) | h4);
+              i += 4;
+              if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
+                if (i + 6 < len && input[i + 1] == '\\' && input[i + 2] == 'u') {
+                  int l1 = hex_value(input[i + 3]);
+                  int l2 = hex_value(input[i + 4]);
+                  int l3 = hex_value(input[i + 5]);
+                  int l4 = hex_value(input[i + 6]);
+                  if (l1 >= 0 && l2 >= 0 && l3 >= 0 && l4 >= 0) {
+                    uint32_t low = (uint32_t)((l1 << 12) | (l2 << 8) | (l3 << 4) | l4);
+                    if (low >= 0xDC00 && low <= 0xDFFF) {
+                      codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+                      i += 6;
+                    }
+                  }
+                }
+              }
+              if (unicode_encode_utf8(codepoint, buffer, &wrote) == 0) {
+                size_t j;
+                for (j = 0; j < wrote; j++) {
+                  out[out_len++] = buffer[j];
+                }
+                break;
+              }
+            }
           }
+          out[out_len++] = '?';
           break;
         default:
           out[out_len++] = n;

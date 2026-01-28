@@ -152,6 +152,25 @@ static void sleep_ms(int ms) {
   nanosleep(&ts, NULL);
 }
 
+static void append_text(char *out, size_t out_size, const char *text) {
+  size_t len;
+  size_t avail;
+  size_t copy_len;
+
+  if (!out || out_size == 0 || !text) {
+    return;
+  }
+
+  len = strlen(out);
+  if (len >= out_size - 1) {
+    return;
+  }
+  avail = out_size - 1 - len;
+  copy_len = strnlen(text, avail);
+  memcpy(out + len, text, copy_len);
+  out[len + copy_len] = '\0';
+}
+
 static double load_track_offset(const char *artist, const char *title) {
   const char *home = getenv("HOME");
   FILE *file;
@@ -163,10 +182,13 @@ static double load_track_offset(const char *artist, const char *title) {
     return 0.0;
   }
 
+  match[0] = '\0';
   if (!is_unknown_artist_name(artist)) {
-    snprintf(match, sizeof(match), "%s - %s", artist, title);
+    append_text(match, sizeof(match), artist ? artist : "");
+    append_text(match, sizeof(match), " - ");
+    append_text(match, sizeof(match), title);
   } else {
-    snprintf(match, sizeof(match), "%s", title);
+    append_text(match, sizeof(match), title);
   }
 
   snprintf(path, sizeof(path), "%s/lyrics/.offsets", home);
@@ -373,6 +395,8 @@ int app_run(int argc, char **argv) {
     return parse_result > 0 ? 0 : 1;
   }
 
+  renderer_set_rtl(config.rtl_mode, config.rtl_align, config.rtl_shape,
+                   config.bidi_mode);
   if (mpd_client_connect(args.host, args.port) != 0) {
     log_error("mpd: connection failed");
     return 1;

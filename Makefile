@@ -1,6 +1,6 @@
 CC ?= gcc
 CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Iinclude -Ivendor/toml -Ivendor/jsmn -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700
-LDFLAGS ?= -lmpdclient -lcurl -lm
+LDFLAGS ?= -lmpdclient -lcurl -lfribidi -lm
 
 BIN := csong
 
@@ -25,7 +25,8 @@ SRC := \
   src/x11/compositor.c \
   src/util/fs.c \
   src/util/string.c \
-  src/util/time.c
+  src/util/time.c \
+  src/util/unicode.c
 
 OBJ := $(SRC:%.c=out/%.o)
 

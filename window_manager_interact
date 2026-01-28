@@ -1,0 +1,106 @@
+Got you — here’s the clean “what to use on each platform” map (no code), assuming you’re staying in C and you want a **bottom-right always-on-top semi-transparent lyric overlay**.
+
+## Linux (X11)
+
+**Best choice:** keep using **Xlib/XCB** (or Xlib if you already have it)
+
+Why it’s best on X11:
+
+* You can freely create an **always-on-top** window.
+* You can set **opacity** with the compositor property (`_NET_WM_WINDOW_OPACITY`).
+* You can make it **click-through** (input shape / XFixes).
+* You can position it exactly bottom-right.
+* Mature, predictable for overlays.
+
+When to use:
+
+* If user is on “classic Linux desktop sessions” or Xorg.
+
+Good add-ons (still “ways”, not code):
+
+* **XComposite / XFixes** for click-through and better behavior.
+* Draw text with **Cairo + Pango** for good font rendering.
+
+---
+
+## Linux (Wayland)
+
+**Best choice:** do a **layer-shell overlay** using:
+
+* **wlroots layer-shell protocol** via **wlroots / libwayland-client**
+
+  * The common practical route is: `layer-shell` + `xdg-output` + text rendering.
+
+Why Wayland is different:
+
+* Wayland *intentionally blocks* the “global overlay / always-on-top anywhere” behavior unless you use special protocols.
+* A normal Wayland app can’t just “float above everything” like X11.
+
+What works best for your use-case:
+
+* **Layer-shell (wlr-layer-shell)** is made for panels/overlays (like top bars, notifications, widgets).
+* It lets you anchor to **bottom-right**, set exclusive zones, and sit above other windows (depending on layer).
+
+Big caveat:
+
+* **Not all Wayland compositors support the same protocols.**
+
+  * Many wlroots-based compositors do.
+  * GNOME’s Mutter historically doesn’t support wlr-layer-shell in the same way; KDE has its own story.
+    So on Wayland you’ll likely have:
+* “Best experience” on wlroots compositors,
+* “Limited/alternate behavior” on GNOME if layer-shell isn’t available.
+
+Fallback idea for Wayland (if overlay is blocked):
+
+* Run on XWayland (your X11 build) *when possible*, but it’s not always perfect.
+
+---
+
+## Windows
+
+**Best choice:** **Win32 overlay window** (layered + topmost + click-through)
+
+Why it’s best:
+
+* Windows fully supports:
+
+  * always-on-top overlay
+  * window transparency/opacity
+  * click-through
+  * smooth text rendering
+  * reliable positioning near taskbar
+
+Rendering recommendation:
+
+* For crisp lyrics text: **DirectWrite/Direct2D** style rendering (conceptually; you can still do simpler drawing).
+
+“Now playing” on Windows:
+
+* Best practical sources:
+
+  * **Windows Media Session metadata** (no login) if Spotify exposes it reliably
+  * or **Spotify Web API** (login/OAuth, but very reliable)
+
+---
+
+## Quick “best case” summary
+
+* **X11:** easiest + most control → perfect overlay behavior.
+* **Wayland:** “correct” overlay requires **layer-shell**; otherwise overlays are restricted.
+* **Windows:** Win32 overlay is very capable → excellent overlay behavior.
+
+---
+
+## What you should do architecturally
+
+Make 3 platform front-ends:
+
+* `gui_x11` (Linux Xorg)
+* `gui_wayland` (Linux Wayland layer-shell)
+* `gui_win32` (Windows)
+
+And keep everything else (lyrics fetching, formatting, caching, timing) in the shared core.
+
+If you tell me which desktop environments you’re targeting on Wayland (GNOME? KDE? Hyprland/Sway?), I can tell you the most realistic Wayland route for each one, because that’s the one platform where the “best way” depends heavily on compositor support.
+
