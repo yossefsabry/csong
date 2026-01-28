@@ -2,6 +2,7 @@
 #include "app/log.h"
 #include <ctype.h>
 #include <mpd/client.h>
+#include <mpd/idle.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -197,5 +198,55 @@ int mpd_client_get_current(mpd_track *out) {
   }
   mpd_song_free(song);
   mpd_status_free(status);
+  return 0;
+}
+
+int mpd_client_get_fd(void) {
+  if (!mpd_conn) {
+    return -1;
+  }
+  return mpd_connection_get_fd(mpd_conn);
+}
+
+int mpd_client_idle_begin(unsigned int mask) {
+  if (!mpd_conn) {
+    return -1;
+  }
+  if (mask != 0) {
+    return mpd_send_idle_mask(mpd_conn, (enum mpd_idle)mask) ? 0 : -1;
+  }
+  return mpd_send_idle(mpd_conn) ? 0 : -1;
+}
+
+int mpd_client_idle_end(unsigned int *events) {
+  enum mpd_idle idle;
+  if (!mpd_conn) {
+    return -1;
+  }
+  idle = mpd_recv_idle(mpd_conn, false);
+  if (events) {
+    *events = (unsigned int)idle;
+  }
+  if (mpd_connection_get_error(mpd_conn) != MPD_ERROR_SUCCESS) {
+    return -1;
+  }
+  return 0;
+}
+
+int mpd_client_noidle(unsigned int *events) {
+  enum mpd_idle idle;
+  if (!mpd_conn) {
+    return -1;
+  }
+  if (!mpd_send_noidle(mpd_conn)) {
+    return -1;
+  }
+  idle = mpd_recv_idle(mpd_conn, false);
+  if (events) {
+    *events = (unsigned int)idle;
+  }
+  if (mpd_connection_get_error(mpd_conn) != MPD_ERROR_SUCCESS) {
+    return -1;
+  }
   return 0;
 }

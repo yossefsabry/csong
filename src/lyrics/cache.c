@@ -7,6 +7,8 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+static char g_cache_dir[512];
+
 static int ensure_dir(const char *path) {
   if (mkdir(path, 0700) == 0) {
     return 0;
@@ -15,6 +17,37 @@ static int ensure_dir(const char *path) {
     return 0;
   }
   return -1;
+}
+
+static int ensure_dir_recursive(const char *path) {
+  char temp[512];
+  size_t len;
+  char *p;
+
+  if (!path || path[0] == '\0') {
+    return -1;
+  }
+
+  snprintf(temp, sizeof(temp), "%s", path);
+  len = strlen(temp);
+  if (len == 0) {
+    return -1;
+  }
+  if (temp[len - 1] == '/') {
+    temp[len - 1] = '\0';
+  }
+
+  for (p = temp + 1; *p; p++) {
+    if (*p == '/') {
+      *p = '\0';
+      if (ensure_dir(temp) != 0) {
+        return -1;
+      }
+      *p = '/';
+    }
+  }
+
+  return ensure_dir(temp);
 }
 
 static void trim_spaces(char *text) {
@@ -61,13 +94,23 @@ static void sanitize_component(const char *in, char *out, size_t out_size) {
 static int build_path_artist_title(const char *artist, const char *title,
                                    const char *ext, char *out,
                                    size_t out_size) {
-  const char *home = getenv("HOME");
+  const char *base = NULL;
   char safe_artist[256];
   char safe_title[256];
   const char *artist_text = artist ? artist : "Unknown Artist";
   const char *title_text = title ? title : "Unknown Title";
 
-  if (!home || !out || out_size == 0) {
+  if (!out || out_size == 0) {
+    return -1;
+  }
+
+  if (g_cache_dir[0] != '\0') {
+    base = g_cache_dir;
+  } else {
+    base = getenv("HOME");
+  }
+
+  if (!base || base[0] == '\0') {
     return -1;
   }
 
@@ -85,18 +128,32 @@ static int build_path_artist_title(const char *artist, const char *title,
     ext = ".txt";
   }
 
-  snprintf(out, out_size, "%s/lyrics/%s - %s%s", home, safe_artist, safe_title,
-           ext);
+  if (g_cache_dir[0] != '\0') {
+    snprintf(out, out_size, "%s/%s - %s%s", base, safe_artist, safe_title, ext);
+  } else {
+    snprintf(out, out_size, "%s/lyrics/%s - %s%s", base, safe_artist, safe_title,
+             ext);
+  }
   return 0;
 }
 
 static int build_path_title_only(const char *title, const char *ext, char *out,
                                  size_t out_size) {
-  const char *home = getenv("HOME");
+  const char *base = NULL;
   char safe_title[256];
   const char *title_text = title ? title : "Unknown Title";
 
-  if (!home || !out || out_size == 0) {
+  if (!out || out_size == 0) {
+    return -1;
+  }
+
+  if (g_cache_dir[0] != '\0') {
+    base = g_cache_dir;
+  } else {
+    base = getenv("HOME");
+  }
+
+  if (!base || base[0] == '\0') {
     return -1;
   }
 
@@ -109,23 +166,28 @@ static int build_path_title_only(const char *title, const char *ext, char *out,
     ext = ".txt";
   }
 
-  snprintf(out, out_size, "%s/lyrics/%s%s", home, safe_title, ext);
+  if (g_cache_dir[0] != '\0') {
+    snprintf(out, out_size, "%s/%s%s", base, safe_title, ext);
+  } else {
+    snprintf(out, out_size, "%s/lyrics/%s%s", base, safe_title, ext);
+  }
   return 0;
 }
 
 static int ensure_cache_dirs(void) {
-  const char *home = getenv("HOME");
   char path[512];
 
-  if (!home) {
-    return -1;
+  if (g_cache_dir[0] != '\0') {
+    snprintf(path, sizeof(path), "%s", g_cache_dir);
+  } else {
+    const char *home = getenv("HOME");
+    if (!home || home[0] == '\0') {
+      return -1;
+    }
+    snprintf(path, sizeof(path), "%s/lyrics", home);
   }
 
-  snprintf(path, sizeof(path), "%s/lyrics", home);
-  if (ensure_dir(path) != 0) {
-    return -1;
-  }
-  return 0;
+  return ensure_dir_recursive(path);
 }
 
 static int is_unknown_artist(const char *artist) {
@@ -249,4 +311,13 @@ int lyrics_cache_store(const char *artist, const char *title, const char *text,
 
   fclose(file);
   return 0;
+}
+
+void lyrics_cache_set_dir(const char *path) {
+  if (!path || path[0] == '\0') {
+    g_cache_dir[0] = '\0';
+    return;
+  }
+  snprintf(g_cache_dir, sizeof(g_cache_dir), "%s", path);
+  trim_spaces(g_cache_dir);
 }

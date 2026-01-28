@@ -1,4 +1,6 @@
 title = "csong"
+interval = 1
+show_plain = false
 font = "Sans 12"
 color = "#f3f0e8"
 opacity = 0.85

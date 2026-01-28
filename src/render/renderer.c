@@ -1,5 +1,7 @@
 #include "app/renderer.h"
+#include "app/text_layout.h"
 #include <stdio.h>
+#include <string.h>
 
 static void style_reset(void) {
   printf("\033[0m");
@@ -21,6 +23,42 @@ static void print_time(double elapsed) {
   int minutes = (int)(elapsed / 60.0);
   int seconds = (int)elapsed % 60;
   printf("%02d:%02d", minutes, seconds);
+}
+
+static void render_wrapped(const char *text, const char *prefix,
+                           const char *indent, int r, int g, int b, int bold,
+                           int content_width) {
+  text_layout_lines lines;
+  size_t i;
+  const char *body = text ? text : "";
+
+  if (!prefix) {
+    prefix = "";
+  }
+  if (!indent) {
+    indent = "";
+  }
+
+  if (text_layout_wrap(body, content_width, &lines) != 0) {
+    style_color(r, g, b);
+    style_bold(bold);
+    printf("%s%s\n", prefix, body);
+    style_reset();
+    return;
+  }
+
+  for (i = 0; i < lines.count; i++) {
+    style_color(r, g, b);
+    style_bold(bold);
+    if (i == 0) {
+      printf("%s%s\n", prefix, lines.lines[i]);
+    } else {
+      printf("%s%s\n", indent, lines.lines[i]);
+    }
+    style_reset();
+  }
+
+  text_layout_free(&lines);
 }
 
 int renderer_init(void) {
@@ -52,6 +90,9 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
                    int transition_step, int transition_total) {
   int max_lines = 5;
   int context = 2;
+  int term_width = text_layout_terminal_width();
+  int prefix_width = 2;
+  int content_width = term_width - prefix_width;
   size_t i;
   size_t start;
   size_t end;
@@ -100,9 +141,8 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
     start = 0;
     end = doc->count > (size_t)max_lines ? (size_t)max_lines - 1 : doc->count - 1;
     for (i = start; i <= end; i++) {
-      style_color(140, 140, 140);
-      printf("%s\n", doc->lines[i].text ? doc->lines[i].text : "");
-      style_reset();
+      int width = term_width > 0 ? term_width : 80;
+      render_wrapped(doc->lines[i].text, "", "", 140, 140, 140, 0, width);
     }
     fflush(stdout);
     return;
@@ -126,22 +166,20 @@ void renderer_draw(const char *artist, const char *title, const lyrics_doc *doc,
       int curr_max = 255;
       int curr_color = is_transition ? (int)(curr_base + (curr_max - curr_base) * t)
                                       : 255;
-      style_color(curr_color, curr_color, curr_color);
-      style_bold(is_transition ? (t > 0.6f) : pulse);
-      printf("> %s\n", text);
-      style_reset();
+      int bold = is_transition ? (t > 0.6f) : pulse;
+      int width = content_width > 0 ? content_width : (term_width > 0 ? term_width : 80);
+      render_wrapped(text, "> ", "  ", curr_color, curr_color, curr_color, bold,
+                     width);
     } else if (is_transition && (int)i == prev_index) {
       int prev_min = 140;
       int prev_max = 255;
       int prev_color = (int)(prev_max + (prev_min - prev_max) * t);
-      style_color(prev_color, prev_color, prev_color);
-      style_bold(0);
-      printf("  %s\n", text);
-      style_reset();
+      int width = content_width > 0 ? content_width : (term_width > 0 ? term_width : 80);
+      render_wrapped(text, "  ", "  ", prev_color, prev_color, prev_color, 0,
+                     width);
     } else {
-      style_color(140, 140, 140);
-      printf("  %s\n", text);
-      style_reset();
+      int width = content_width > 0 ? content_width : (term_width > 0 ? term_width : 80);
+      render_wrapped(text, "  ", "  ", 140, 140, 140, 0, width);
     }
   }
   fflush(stdout);

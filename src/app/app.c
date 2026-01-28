@@ -1,9 +1,12 @@
 #include "app/app.h"
+#include "app/config.h"
 #include "app/log.h"
 #include "app/lyrics.h"
 #include "app/mpd_client.h"
 #include "app/renderer.h"
+#include "app/time.h"
 #include <ctype.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,10 +19,13 @@ typedef struct app_args {
   int once;
   int interval;
   int show_plain;
+  int has_config;
+  char config_path[512];
 } app_args;
 
 static void print_usage(const char *name) {
-  printf("Usage: %s [--mpd-host HOST] [--mpd-port PORT] [--once] [--interval N]\n",
+  printf("Usage: %s [--config PATH] [--mpd-host HOST] [--mpd-port PORT] "
+         "[--once] [--interval N] [--show-plain]\n",
          name);
 }
 
@@ -32,17 +38,49 @@ static void args_default(app_args *out) {
   out->once = 0;
   out->interval = 1;
   out->show_plain = 0;
+  out->has_config = 0;
+  out->config_path[0] = '\0';
+}
+
+static int args_parse_config_path(app_args *out, int argc, char **argv) {
+  int i = 1;
+  if (!out) {
+    return -1;
+  }
+  while (i < argc) {
+    if (strcmp(argv[i], "--config") == 0) {
+      if (i + 1 >= argc) {
+        print_usage(argv[0]);
+        return -1;
+      }
+      snprintf(out->config_path, sizeof(out->config_path), "%s", argv[i + 1]);
+      out->has_config = 1;
+      i += 2;
+    } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+      print_usage(argv[0]);
+      return 1;
+    } else {
+      i++;
+    }
+  }
+  return 0;
 }
 
 static int args_parse(app_args *out, int argc, char **argv) {
   int i = 1;
-  args_default(out);
+  if (!out) {
+    return -1;
+  }
   while (i < argc) {
     if (strcmp(argv[i], "--mpd-host") == 0 && i + 1 < argc) {
       snprintf(out->host, sizeof(out->host), "%s", argv[i + 1]);
       i += 2;
     } else if (strcmp(argv[i], "--mpd-port") == 0 && i + 1 < argc) {
       out->port = atoi(argv[i + 1]);
+      i += 2;
+    } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+      snprintf(out->config_path, sizeof(out->config_path), "%s", argv[i + 1]);
+      out->has_config = 1;
       i += 2;
     } else if (strcmp(argv[i], "--once") == 0) {
       out->once = 1;
@@ -101,6 +139,17 @@ static void trim_whitespace(char *text) {
     end[-1] = '\0';
     end--;
   }
+}
+
+static void sleep_ms(int ms) {
+  struct timespec ts;
+
+  if (ms <= 0) {
+    return;
+  }
+  ts.tv_sec = ms / 1000;
+  ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+  nanosleep(&ts, NULL);
 }
 
 static double load_track_offset(const char *artist, const char *title) {
@@ -250,6 +299,7 @@ static void free_lyrics(char **text, lyrics_doc **doc) {
 
 int app_run(int argc, char **argv) {
   app_args args;
+  app_config config;
   mpd_track track;
   char last_artist[256] = {0};
   char last_title[256] = {0};
@@ -266,8 +316,57 @@ int app_run(int argc, char **argv) {
   int pulse_frames = 0;
   const int transition_total = 7;
   const int transition_delay_us = 100000;
+  const double lyric_lead_seconds = 0.5;
   double offset_seconds = 0.0;
   int parse_result;
+  int config_result = 1;
+  char config_path[512] = {0};
+  long last_tick_ms = 0;
+  int refresh_mpd = 1;
+  int idle_active = 0;
+  int mpd_fd = -1;
+  int tick_ms = 0;
+
+  args_default(&args);
+  parse_result = args_parse_config_path(&args, argc, argv);
+  if (parse_result != 0) {
+    return parse_result > 0 ? 0 : 1;
+  }
+
+  config_default(&config);
+  if (args.has_config) {
+    if (config_resolve_path(args.config_path, config_path,
+                            sizeof(config_path)) != 0) {
+      snprintf(config_path, sizeof(config_path), "%s", args.config_path);
+    }
+    config_result = config_load(config_path, &config);
+    if (config_result == 1) {
+      log_error("config: file not found");
+      return 1;
+    }
+    if (config_result < 0) {
+      return 1;
+    }
+  } else if (config_default_path(config_path, sizeof(config_path)) == 0) {
+    config_result = config_load(config_path, &config);
+    if (config_result < 0) {
+      return 1;
+    }
+  }
+
+  if (config.mpd_host[0] != '\0') {
+    snprintf(args.host, sizeof(args.host), "%s", config.mpd_host);
+  }
+  if (config.mpd_port > 0) {
+    args.port = config.mpd_port;
+  }
+  if (config.interval > 0) {
+    args.interval = config.interval;
+  }
+  args.show_plain = config.show_plain;
+  if (config.cache_dir[0] != '\0') {
+    lyrics_cache_set_dir(config.cache_dir);
+  }
 
   parse_result = args_parse(&args, argc, argv);
   if (parse_result != 0) {
@@ -281,14 +380,44 @@ int app_run(int argc, char **argv) {
 
   renderer_init();
 
+  tick_ms = args.interval > 0 ? args.interval * 1000 : 1000;
+  if (tick_ms < 50) {
+    tick_ms = 50;
+  }
+  last_tick_ms = time_now_ms();
+  mpd_fd = mpd_client_get_fd();
+  idle_active = 0;
+
   for (;;) {
-    if (mpd_client_get_current(&track) != 0) {
-      renderer_draw_status("MPD unavailable", "■");
-      if (args.once) {
-        break;
+    long now = time_now_ms();
+    long delta_ms = now - last_tick_ms;
+    if (delta_ms < 0) {
+      delta_ms = 0;
+    }
+    last_tick_ms = now;
+
+    if (!refresh_mpd && track.is_playing && !track.is_paused &&
+        !track.is_stopped) {
+      track.elapsed += (double)delta_ms / 1000.0;
+      if (track.duration > 0.0 && track.elapsed > track.duration) {
+        track.elapsed = track.duration;
       }
-      sleep((unsigned int)args.interval);
-      continue;
+    }
+
+    if (refresh_mpd) {
+      if (idle_active) {
+        mpd_client_noidle(NULL);
+        idle_active = 0;
+      }
+      if (mpd_client_get_current(&track) != 0) {
+        renderer_draw_status("MPD unavailable", "■");
+        if (args.once) {
+          break;
+        }
+        refresh_mpd = 1;
+        goto wait_loop;
+      }
+      refresh_mpd = 0;
     }
 
     if (!track.has_song || track.is_stopped) {
@@ -296,8 +425,7 @@ int app_run(int argc, char **argv) {
       if (args.once) {
         break;
       }
-      sleep((unsigned int)args.interval);
-      continue;
+      goto wait_loop;
     }
 
     status[0] = '\0';
@@ -357,18 +485,23 @@ int app_run(int argc, char **argv) {
     }
 
     double position = track.elapsed + offset_seconds;
+    double lyric_position;
     if (position < 0.0) {
       position = 0.0;
+    }
+    lyric_position = position + lyric_lead_seconds;
+    if (lyric_position < 0.0) {
+      lyric_position = 0.0;
     }
 
     if (args.once) {
       int current_index = -1;
       int pulse = 0;
       const char *icon = track.is_paused ? "⏸" : "♪";
-      int music_only = track.is_playing && !track.is_paused &&
-                       is_music_only_section(doc, position);
-      if (doc && doc->has_timestamps) {
-        current_index = lyrics_find_current(doc, position);
+       int music_only = track.is_playing && !track.is_paused &&
+                        is_music_only_section(doc, lyric_position);
+       if (doc && doc->has_timestamps) {
+        current_index = lyrics_find_current(doc, lyric_position);
         if (current_index >= 0 && current_index != last_current_index) {
           pulse_frames = 2;
           last_current_index = current_index;
@@ -395,13 +528,13 @@ int app_run(int argc, char **argv) {
     }
 
     if (track.is_playing && !track.is_paused &&
-        is_music_only_section(doc, position)) {
+        is_music_only_section(doc, lyric_position)) {
       static const char *frames[] = {"♪    ", " ♪   ", "  ♪  ", "   ♪ ", "    ♪"};
       snprintf(status, sizeof(status), "%s", frames[anim_frame % 5]);
       renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
                     "♪", 0, -1, 0, 0);
     } else if (doc && doc->has_timestamps) {
-      int current_index = lyrics_find_current(doc, position);
+      int current_index = lyrics_find_current(doc, lyric_position);
       int pulse = 0;
       int prev_index = last_current_index;
       int do_transition = 0;
@@ -449,10 +582,45 @@ int app_run(int argc, char **argv) {
     }
 
     last_paused = track.is_paused;
-
-    sleep((unsigned int)args.interval);
+wait_loop:
+    if (args.once) {
+      break;
+    }
+    if (mpd_fd >= 0) {
+      if (!idle_active) {
+        if (mpd_client_idle_begin(0) == 0) {
+          idle_active = 1;
+        }
+      }
+      if (idle_active) {
+        struct pollfd pfd;
+        int poll_result;
+        pfd.fd = mpd_fd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        poll_result = poll(&pfd, 1, tick_ms);
+        if (poll_result > 0 && (pfd.revents & POLLIN)) {
+          if (mpd_client_idle_end(NULL) != 0) {
+            idle_active = 0;
+          } else {
+            idle_active = 0;
+          }
+          refresh_mpd = 1;
+        } else if (poll_result < 0) {
+          idle_active = 0;
+          sleep_ms(tick_ms);
+        }
+      } else {
+        sleep_ms(tick_ms);
+      }
+    } else {
+      sleep((unsigned int)args.interval);
+    }
   }
 
+  if (idle_active) {
+    mpd_client_noidle(NULL);
+  }
   free_lyrics(&lyrics_text, &doc);
   renderer_shutdown();
   mpd_client_disconnect();

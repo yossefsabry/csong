@@ -1,10 +1,11 @@
 CC ?= gcc
-CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Iinclude -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700
+CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Iinclude -Ivendor/toml -Ivendor/jsmn -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700
 LDFLAGS ?= -lmpdclient -lcurl -lm
 
 BIN := csong
 
 SRC := \
+  vendor/toml/toml.c \
   src/main.c \
   src/app/app.c \
   src/app/config.c \

@@ -22,6 +22,7 @@ make
 ```
 
 Options:
+- `--config PATH` (default: `~/.config/csong/config.toml` or `$XDG_CONFIG_HOME/csong/config.toml`)
 - `--mpd-host HOST` (default: 127.0.0.1)
 - `--mpd-port PORT` (default: 6600)
 - `--once` (print once and exit)
@@ -40,6 +41,14 @@ Options:
   Dua Lipa - Houdini = -4.0
   Houdini = -4.0
   ```
+
+## Config
+- Default path: `~/.config/csong/config.toml` (or `$XDG_CONFIG_HOME/csong/config.toml`)
+- Supported keys:
+  - `interval` (seconds between updates)
+  - `show_plain` (boolean)
+  - `[mpd].host`, `[mpd].port`
+  - `[lyrics].cache_dir` (overrides default `~/lyrics` cache)
 
 ## Project layout
 - include/app/: public headers

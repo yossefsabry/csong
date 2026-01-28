@@ -7,6 +7,9 @@
 #include <string.h>
 #include <strings.h>
 
+#define JSMN_STATIC
+#include "jsmn.h"
+
 typedef struct http_buffer {
   char *data;
   size_t size;
@@ -28,8 +31,7 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
   return total;
 }
 
-static char *json_unescape(const char *input) {
-  size_t len;
+static char *json_unescape_range(const char *input, size_t len) {
   size_t i;
   size_t out_len = 0;
   char *out;
@@ -38,7 +40,6 @@ static char *json_unescape(const char *input) {
     return NULL;
   }
 
-  len = strlen(input);
   out = (char *)malloc(len + 1);
   if (!out) {
     return NULL;
@@ -86,59 +87,156 @@ static char *json_unescape(const char *input) {
   return out;
 }
 
-static char *extract_json_string(const char *json, const char *key) {
-  const char *pos;
-  const char *start;
-  const char *end;
-  char *raw;
-  char *out;
+static int json_token_equal(const char *json, const jsmntok_t *tok,
+                            const char *text) {
+  size_t len;
 
-  if (!json || !key) {
-    return NULL;
+  if (!json || !tok || !text || tok->type != JSMN_STRING) {
+    return 0;
   }
 
-  pos = strstr(json, key);
-  if (!pos) {
-    return NULL;
+  len = strlen(text);
+  if ((size_t)(tok->end - tok->start) != len) {
+    return 0;
   }
 
-  pos = strchr(pos, ':');
-  if (!pos) {
-    return NULL;
+  return strncmp(json + tok->start, text, len) == 0;
+}
+
+static int json_token_is_null(const char *json, const jsmntok_t *tok) {
+  size_t len;
+
+  if (!json || !tok || tok->type != JSMN_PRIMITIVE) {
+    return 0;
   }
 
-  pos++;
-  while (*pos == ' ' || *pos == '\n' || *pos == '\r' || *pos == '\t') {
-    pos++;
+  len = (size_t)(tok->end - tok->start);
+  if (len != 4) {
+    return 0;
   }
-  if (strncmp(pos, "null", 4) == 0) {
-    return NULL;
+
+  return strncmp(json + tok->start, "null", 4) == 0;
+}
+
+static int json_token_next(const jsmntok_t *tokens, int index) {
+  int i;
+  int count;
+
+  if (!tokens || index < 0) {
+    return index + 1;
   }
-  if (*pos != '"') {
-    return NULL;
+
+  switch (tokens[index].type) {
+    case JSMN_OBJECT:
+      count = tokens[index].size;
+      i = index + 1;
+      for (; count > 0; count--) {
+        i = json_token_next(tokens, i);
+        i = json_token_next(tokens, i);
+      }
+      return i;
+    case JSMN_ARRAY:
+      count = tokens[index].size;
+      i = index + 1;
+      for (; count > 0; count--) {
+        i = json_token_next(tokens, i);
+      }
+      return i;
+    default:
+      return index + 1;
   }
-  start = pos + 1;
-  end = start;
-  while (*end) {
-    if (*end == '"' && end[-1] != '\\') {
-      break;
+}
+
+static int json_obj_get(const char *json, const jsmntok_t *tokens, int obj_index,
+                        const char *key, int *out_index) {
+  int i;
+  int count;
+
+  if (!json || !tokens || !key) {
+    return 0;
+  }
+  if (tokens[obj_index].type != JSMN_OBJECT) {
+    return 0;
+  }
+
+  i = obj_index + 1;
+  count = tokens[obj_index].size;
+  for (; count > 0; count--) {
+    if (json_token_equal(json, &tokens[i], key)) {
+      if (out_index) {
+        *out_index = i + 1;
+      }
+      return 1;
     }
-    end++;
+    i = json_token_next(tokens, i + 1);
   }
-  if (*end != '"') {
-    return NULL;
+  return 0;
+}
+
+static int json_parse(const char *json, jsmntok_t **out_tokens,
+                      int *out_count) {
+  jsmn_parser parser;
+  jsmntok_t *tokens;
+  int count;
+
+  if (!json || !out_tokens || !out_count) {
+    return -1;
   }
 
-  raw = (char *)malloc((size_t)(end - start) + 1);
-  if (!raw) {
+  jsmn_init(&parser);
+  count = jsmn_parse(&parser, json, strlen(json), NULL, 0);
+  if (count <= 0) {
+    return -1;
+  }
+
+  tokens = (jsmntok_t *)calloc((size_t)count, sizeof(*tokens));
+  if (!tokens) {
+    return -1;
+  }
+
+  jsmn_init(&parser);
+  count = jsmn_parse(&parser, json, strlen(json), tokens, (unsigned int)count);
+  if (count < 0) {
+    free(tokens);
+    return -1;
+  }
+
+  *out_tokens = tokens;
+  *out_count = count;
+  return 0;
+}
+
+static int json_number_from_token(const char *json, const jsmntok_t *tok,
+                                  double *out_value) {
+  char buf[64];
+  int len;
+  char *endptr;
+
+  if (!json || !tok || !out_value || tok->type != JSMN_PRIMITIVE) {
+    return 0;
+  }
+
+  len = tok->end - tok->start;
+  if (len <= 0 || len >= (int)sizeof(buf)) {
+    return 0;
+  }
+
+  memcpy(buf, json + tok->start, (size_t)len);
+  buf[len] = '\0';
+
+  *out_value = strtod(buf, &endptr);
+  if (endptr == buf) {
+    return 0;
+  }
+  return 1;
+}
+
+static char *json_string_from_token(const char *json, const jsmntok_t *tok) {
+  if (!json || !tok || tok->type != JSMN_STRING) {
     return NULL;
   }
-  memcpy(raw, start, (size_t)(end - start));
-  raw[end - start] = '\0';
-
-  out = json_unescape(raw);
-  free(raw);
-  return out;
+  return json_unescape_range(json + tok->start,
+                             (size_t)(tok->end - tok->start));
 }
 
 static int http_get(const char *url, char **out_body) {
@@ -192,119 +290,6 @@ static int http_get(const char *url, char **out_body) {
   return 0;
 }
 
-static const char *range_strstr(const char *start, const char *end,
-                                const char *needle) {
-  size_t nlen;
-  const char *p;
-
-  if (!start || !end || !needle) {
-    return NULL;
-  }
-
-  nlen = strlen(needle);
-  if (nlen == 0) {
-    return start;
-  }
-
-  for (p = start; p + nlen <= end; p++) {
-    if (*p == needle[0] && memcmp(p, needle, nlen) == 0) {
-      return p;
-    }
-  }
-
-  return NULL;
-}
-
-static char *extract_json_string_range(const char *start, const char *end,
-                                       const char *key) {
-  const char *pos;
-  const char *value;
-  const char *scan;
-  char *raw;
-  char *out;
-
-  if (!start || !end || !key) {
-    return NULL;
-  }
-
-  pos = range_strstr(start, end, key);
-  if (!pos) {
-    return NULL;
-  }
-
-  pos = memchr(pos, ':', (size_t)(end - pos));
-  if (!pos) {
-    return NULL;
-  }
-  pos++;
-  while (pos < end && (*pos == ' ' || *pos == '\n' || *pos == '\r' ||
-                       *pos == '\t')) {
-    pos++;
-  }
-  if (pos + 4 <= end && strncmp(pos, "null", 4) == 0) {
-    return NULL;
-  }
-  if (pos >= end || *pos != '"') {
-    return NULL;
-  }
-  value = pos + 1;
-  scan = value;
-  while (scan < end) {
-    if (*scan == '"' && scan[-1] != '\\') {
-      break;
-    }
-    scan++;
-  }
-  if (scan >= end || *scan != '"') {
-    return NULL;
-  }
-
-  raw = (char *)malloc((size_t)(scan - value) + 1);
-  if (!raw) {
-    return NULL;
-  }
-  memcpy(raw, value, (size_t)(scan - value));
-  raw[scan - value] = '\0';
-
-  out = json_unescape(raw);
-  free(raw);
-  return out;
-}
-
-static int extract_json_number_range(const char *start, const char *end,
-                                     const char *key, double *out_value) {
-  const char *pos;
-  char *endptr;
-
-  if (!start || !end || !key || !out_value) {
-    return 0;
-  }
-
-  pos = range_strstr(start, end, key);
-  if (!pos) {
-    return 0;
-  }
-
-  pos = memchr(pos, ':', (size_t)(end - pos));
-  if (!pos) {
-    return 0;
-  }
-  pos++;
-  while (pos < end && (*pos == ' ' || *pos == '\n' || *pos == '\r' ||
-                       *pos == '\t')) {
-    pos++;
-  }
-  if (pos >= end) {
-    return 0;
-  }
-
-  *out_value = strtod(pos, &endptr);
-  if (endptr == pos) {
-    return 0;
-  }
-  return 1;
-}
-
 static int duration_close(double target, double actual) {
   if (target <= 0.0 || actual <= 0.0) {
     return 1;
@@ -312,92 +297,47 @@ static int duration_close(double target, double actual) {
   return fabs(target - actual) <= 3.0;
 }
 
-static int parse_lrclib_object(const char *start, const char *end,
-                               double target_duration, char **out_synced,
-                               char **out_plain, double *out_diff) {
-  double duration = 0.0;
-  char *synced = NULL;
-  char *plain = NULL;
-  double diff = 1e9;
-
-  if (extract_json_number_range(start, end, "\"duration\"", &duration)) {
-    if (target_duration > 0.0 && duration > 0.0) {
-      diff = fabs(target_duration - duration);
-    } else {
-      diff = 1e6;
-    }
-  }
-
-  synced = extract_json_string_range(start, end, "\"syncedLyrics\"");
-  plain = extract_json_string_range(start, end, "\"plainLyrics\"");
-
-  if (out_synced) {
-    *out_synced = synced;
-  } else {
-    free(synced);
-  }
-  if (out_plain) {
-    *out_plain = plain;
-  } else {
-    free(plain);
-  }
-  if (out_diff) {
-    *out_diff = diff;
-  }
-  return 1;
-}
-
 static int parse_lrclib_search_best(const char *json, double target_duration,
                                     char **out_text, int *out_timed) {
-  const char *p = json;
+  jsmntok_t *tokens = NULL;
+  int count = 0;
   char *best_synced = NULL;
   char *best_plain = NULL;
   double best_synced_diff = 1e9;
   double best_plain_diff = 1e9;
+  int i;
 
   if (!json || !out_text || !out_timed) {
     return -1;
   }
 
-  while (*p) {
-    if (*p == '{') {
-      int depth = 1;
-      int in_string = 0;
-      int escape = 0;
-      const char *start = p;
-      const char *end = NULL;
-      p++;
-      while (*p && depth > 0) {
-        char c = *p;
-        if (in_string) {
-          if (escape) {
-            escape = 0;
-          } else if (c == '\\') {
-            escape = 1;
-          } else if (c == '"') {
-            in_string = 0;
-          }
-        } else {
-          if (c == '"') {
-            in_string = 1;
-          } else if (c == '{') {
-            depth++;
-          } else if (c == '}') {
-            depth--;
-            if (depth == 0) {
-              end = p + 1;
-              break;
-            }
+  if (json_parse(json, &tokens, &count) != 0) {
+    return -1;
+  }
+  if (count < 1 || tokens[0].type != JSMN_ARRAY) {
+    free(tokens);
+    return -1;
+  }
+
+  i = 1;
+  for (int item = 0; item < tokens[0].size; item++) {
+    int obj_index = i;
+    int value_index = -1;
+    double diff = 1e6;
+    double duration = 0.0;
+
+    if (tokens[obj_index].type == JSMN_OBJECT) {
+      if (json_obj_get(json, tokens, obj_index, "duration", &value_index)) {
+        if (json_number_from_token(json, &tokens[value_index], &duration)) {
+          if (target_duration > 0.0 && duration > 0.0) {
+            diff = fabs(target_duration - duration);
           }
         }
-        p++;
       }
 
-      if (end) {
-        char *synced = NULL;
-        char *plain = NULL;
-        double diff = 1e9;
-        parse_lrclib_object(start, end, target_duration, &synced, &plain, &diff);
+      if (json_obj_get(json, tokens, obj_index, "syncedLyrics", &value_index) &&
+          !json_token_is_null(json, &tokens[value_index])) {
+        char *synced = json_string_from_token(json, &tokens[value_index]);
         if (synced && synced[0] != '\0') {
           if (diff < best_synced_diff) {
             free(best_synced);
@@ -409,6 +349,11 @@ static int parse_lrclib_search_best(const char *json, double target_duration,
         } else {
           free(synced);
         }
+      }
+
+      if (json_obj_get(json, tokens, obj_index, "plainLyrics", &value_index) &&
+          !json_token_is_null(json, &tokens[value_index])) {
+        char *plain = json_string_from_token(json, &tokens[value_index]);
         if (plain && plain[0] != '\0') {
           if (diff < best_plain_diff) {
             free(best_plain);
@@ -421,59 +366,82 @@ static int parse_lrclib_search_best(const char *json, double target_duration,
           free(plain);
         }
       }
-    } else {
-      p++;
     }
+
+    i = json_token_next(tokens, i);
   }
 
   if (best_synced) {
     *out_text = best_synced;
     *out_timed = 1;
     free(best_plain);
+    free(tokens);
     return 0;
   }
   if (best_plain) {
     *out_text = best_plain;
     *out_timed = 0;
+    free(tokens);
     return 0;
   }
 
+  free(tokens);
   return -1;
 }
 
 static int parse_lrclib_get_best(const char *json, double target_duration,
                                  char **out_text, int *out_timed) {
+  jsmntok_t *tokens = NULL;
+  int count = 0;
+  int value_index = -1;
   double duration = 0.0;
-  char *synced;
-  char *plain;
-  const char *end;
 
   if (!json || !out_text || !out_timed) {
     return -1;
   }
 
-  end = json + strlen(json);
-  if (extract_json_number_range(json, end, "\"duration\"", &duration)) {
-    if (!duration_close(target_duration, duration)) {
-      return -1;
+  if (json_parse(json, &tokens, &count) != 0) {
+    return -1;
+  }
+  if (count < 1 || tokens[0].type != JSMN_OBJECT) {
+    free(tokens);
+    return -1;
+  }
+
+  if (json_obj_get(json, tokens, 0, "duration", &value_index)) {
+    if (json_number_from_token(json, &tokens[value_index], &duration)) {
+      if (!duration_close(target_duration, duration)) {
+        free(tokens);
+        return -1;
+      }
     }
   }
 
-  synced = extract_json_string(json, "\"syncedLyrics\"");
-  if (synced && synced[0] != '\0') {
-    *out_text = synced;
-    *out_timed = 1;
-    return 0;
+  if (json_obj_get(json, tokens, 0, "syncedLyrics", &value_index) &&
+      !json_token_is_null(json, &tokens[value_index])) {
+    char *synced = json_string_from_token(json, &tokens[value_index]);
+    if (synced && synced[0] != '\0') {
+      *out_text = synced;
+      *out_timed = 1;
+      free(tokens);
+      return 0;
+    }
+    free(synced);
   }
-  free(synced);
 
-  plain = extract_json_string(json, "\"plainLyrics\"");
-  if (plain && plain[0] != '\0') {
-    *out_text = plain;
-    *out_timed = 0;
-    return 0;
+  if (json_obj_get(json, tokens, 0, "plainLyrics", &value_index) &&
+      !json_token_is_null(json, &tokens[value_index])) {
+    char *plain = json_string_from_token(json, &tokens[value_index]);
+    if (plain && plain[0] != '\0') {
+      *out_text = plain;
+      *out_timed = 0;
+      free(tokens);
+      return 0;
+    }
+    free(plain);
   }
-  free(plain);
+
+  free(tokens);
   return -1;
 }
 
@@ -642,6 +610,9 @@ static int lyrics_fetch_ovh(const char *artist, const char *title,
   char url[1024];
   char *json;
   char *lyrics;
+  jsmntok_t *tokens = NULL;
+  int count = 0;
+  int value_index = -1;
 
   if (!out_text) {
     return -1;
@@ -656,7 +627,14 @@ static int lyrics_fetch_ovh(const char *artist, const char *title,
     return -1;
   }
 
-  lyrics = extract_json_string(json, "\"lyrics\"");
+  lyrics = NULL;
+  if (json_parse(json, &tokens, &count) == 0 && count > 0 &&
+      tokens[0].type == JSMN_OBJECT &&
+      json_obj_get(json, tokens, 0, "lyrics", &value_index) &&
+      !json_token_is_null(json, &tokens[value_index])) {
+    lyrics = json_string_from_token(json, &tokens[value_index]);
+  }
+  free(tokens);
   free(json);
   if (!lyrics || lyrics[0] == '\0') {
     free(lyrics);

@@ -15,5 +15,9 @@ typedef struct mpd_track {
 int mpd_client_connect(const char *host, int port);
 void mpd_client_disconnect(void);
 int mpd_client_get_current(mpd_track *out);
+int mpd_client_get_fd(void);
+int mpd_client_idle_begin(unsigned int mask);
+int mpd_client_idle_end(unsigned int *events);
+int mpd_client_noidle(unsigned int *events);
 
 #endif
