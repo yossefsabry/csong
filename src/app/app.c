@@ -3,7 +3,7 @@
 #include "app/log.h"
 #include "app/lyrics.h"
 #include "app/mpd_client.h"
-#include "app/renderer.h"
+#include "app/ui.h"
 #include "app/time.h"
 #include <ctype.h>
 #include <poll.h>
@@ -322,6 +322,7 @@ static void free_lyrics(char **text, lyrics_doc **doc) {
 int app_run(int argc, char **argv) {
   app_args args;
   app_config config;
+  ui_options ui = {0};
   mpd_track track;
   char last_artist[256] = {0};
   char last_title[256] = {0};
@@ -395,15 +396,46 @@ int app_run(int argc, char **argv) {
     return parse_result > 0 ? 0 : 1;
   }
 
-  renderer_set_rtl(config.rtl_mode, config.rtl_align, config.rtl_shape,
-                   config.bidi_mode);
+  snprintf(ui.backend, sizeof(ui.backend), "%s", config.ui_backend);
+  snprintf(ui.font, sizeof(ui.font), "%s", config.ui_font);
+  snprintf(ui.title_font, sizeof(ui.title_font), "%s", config.ui_title_font);
+  snprintf(ui.title_weight, sizeof(ui.title_weight), "%s", config.ui_title_weight);
+  snprintf(ui.title_style, sizeof(ui.title_style), "%s", config.ui_title_style);
+  ui.opacity = config.ui_opacity;
+  ui.width = config.ui_width;
+  ui.height = config.ui_height;
+  ui.offset_x = config.ui_offset_x;
+  ui.offset_y = config.ui_offset_y;
+  ui.padding_x = config.ui_padding_x;
+  ui.padding_y = config.ui_padding_y;
+  ui.click_through = config.ui_click_through;
+  ui.fg_r = config.ui_fg_r;
+  ui.fg_g = config.ui_fg_g;
+  ui.fg_b = config.ui_fg_b;
+  ui.dim_r = config.ui_dim_r;
+  ui.dim_g = config.ui_dim_g;
+  ui.dim_b = config.ui_dim_b;
+  ui.prev_r = config.ui_prev_r;
+  ui.prev_g = config.ui_prev_g;
+  ui.prev_b = config.ui_prev_b;
+  ui.bg_r = config.ui_bg_r;
+  ui.bg_g = config.ui_bg_g;
+  ui.bg_b = config.ui_bg_b;
+  ui.title_r = config.ui_title_r;
+  ui.title_g = config.ui_title_g;
+  ui.title_b = config.ui_title_b;
+  ui.line_spacing = config.ui_line_spacing;
+  ui.title_scale = config.ui_title_scale;
+  snprintf(ui.anchor, sizeof(ui.anchor), "%s", config.ui_anchor);
+
+  ui_init(&ui);
+  ui_set_rtl(config.rtl_mode, config.rtl_align, config.rtl_shape,
+             config.bidi_mode);
   if (mpd_client_connect(args.host, args.port) != 0) {
     log_error("mpd: connection failed");
+    ui_shutdown();
     return 1;
   }
-
-  renderer_init();
-
   tick_ms = args.interval > 0 ? args.interval * 1000 : 1000;
   if (tick_ms < 50) {
     tick_ms = 50;
@@ -434,7 +466,7 @@ int app_run(int argc, char **argv) {
         idle_active = 0;
       }
       if (mpd_client_get_current(&track) != 0) {
-        renderer_draw_status("MPD unavailable", "■");
+        ui_draw_status("MPD unavailable", "■");
         if (args.once) {
           break;
         }
@@ -445,7 +477,7 @@ int app_run(int argc, char **argv) {
     }
 
     if (!track.has_song || track.is_stopped) {
-      renderer_draw_status("MPD stopped", "■");
+      ui_draw_status("MPD stopped", "■");
       if (args.once) {
         break;
       }
@@ -463,8 +495,8 @@ int app_run(int argc, char **argv) {
       anim_frame = 0;
       offset_seconds = load_track_offset(track.artist, track.title);
       snprintf(status, sizeof(status), "%s", "Loading lyrics...");
-      renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                    track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
+      ui_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
+              track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
       status[0] = '\0';
       lyrics_text = lyrics_cache_load(track.artist, track.title);
       if (!lyrics_text) {
@@ -535,18 +567,18 @@ int app_run(int argc, char **argv) {
       if (music_only) {
         static const char *frames[] = {"♪    ", " ♪   ", "  ♪  ", "   ♪ ", "    ♪"};
         snprintf(status, sizeof(status), "%s", frames[anim_frame % 5]);
-        renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      icon, 0, -1, 0, 0);
+        ui_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
+                icon, 0, -1, 0, 0);
       } else if (doc && doc->has_timestamps) {
-        renderer_draw(track.artist, track.title, doc,
-                      current_index, track.elapsed,
-                      status, icon, pulse, -1, 0, 0);
+        ui_draw(track.artist, track.title, doc,
+                current_index, track.elapsed,
+                status, icon, pulse, -1, 0, 0);
       } else if (doc && doc->count > 0 && args.show_plain) {
-        renderer_draw(track.artist, track.title, doc, -1, track.elapsed, status,
-                      icon, 0, -1, 0, 0);
+        ui_draw(track.artist, track.title, doc, -1, track.elapsed, status,
+                icon, 0, -1, 0, 0);
       } else {
-        renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      icon, 0, -1, 0, 0);
+        ui_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
+                icon, 0, -1, 0, 0);
       }
       break;
     }
@@ -555,8 +587,8 @@ int app_run(int argc, char **argv) {
         is_music_only_section(doc, lyric_position)) {
       static const char *frames[] = {"♪    ", " ♪   ", "  ♪  ", "   ♪ ", "    ♪"};
       snprintf(status, sizeof(status), "%s", frames[anim_frame % 5]);
-      renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                    "♪", 0, -1, 0, 0);
+      ui_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
+              "♪", 0, -1, 0, 0);
     } else if (doc && doc->has_timestamps) {
       int current_index = lyrics_find_current(doc, lyric_position);
       int pulse = 0;
@@ -574,26 +606,26 @@ int app_run(int argc, char **argv) {
         int step;
         for (step = 0; step < transition_total; step++) {
           struct timespec ts;
-          renderer_draw(track.artist, track.title, doc, current_index,
-                        track.elapsed, status,
-                        track.is_paused ? "⏸" : "♪", 1, prev_index, step,
-                        transition_total);
+          ui_draw(track.artist, track.title, doc, current_index,
+                  track.elapsed, status,
+                  track.is_paused ? "⏸" : "♪", 1, prev_index, step,
+                  transition_total);
           ts.tv_sec = 0;
           ts.tv_nsec = (long)transition_delay_us * 1000L;
           nanosleep(&ts, NULL);
         }
       } else {
-        renderer_draw(track.artist, track.title, doc, current_index,
-                      track.elapsed, status,
-                      track.is_paused ? "⏸" : "♪", pulse, -1, 0, 0);
+        ui_draw(track.artist, track.title, doc, current_index,
+                track.elapsed, status,
+                track.is_paused ? "⏸" : "♪", pulse, -1, 0, 0);
       }
     } else if (!rendered_for_track || last_paused != track.is_paused) {
       if (doc && doc->count > 0 && args.show_plain) {
-        renderer_draw(track.artist, track.title, doc, -1, track.elapsed, status,
-                      track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
+        ui_draw(track.artist, track.title, doc, -1, track.elapsed, status,
+                track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
       } else {
-        renderer_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
-                      track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
+        ui_draw(track.artist, track.title, NULL, -1, track.elapsed, status,
+                track.is_paused ? "⏸" : "♪", 0, -1, 0, 0);
       }
       rendered_for_track = 1;
     }
@@ -646,7 +678,7 @@ wait_loop:
     mpd_client_noidle(NULL);
   }
   free_lyrics(&lyrics_text, &doc);
-  renderer_shutdown();
+  ui_shutdown();
   mpd_client_disconnect();
   return 0;
 }

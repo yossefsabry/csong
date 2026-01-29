@@ -11,6 +11,11 @@ Terminal lyrics viewer for MPD/ncmpcpp (X11 overlay planned).
 - libmpdclient
 - libcurl
 - libfribidi
+- libX11 (X11 backend)
+- libXft (X11 backend)
+- libXfixes (X11 backend)
+- libXrender (X11 backend)
+- fontconfig + freetype (X11 backend)
 
 ## Build (GCC + Make)
 ```sh
@@ -50,10 +55,26 @@ Options:
   - `show_plain` (boolean)
   - `[mpd].host`, `[mpd].port`
   - `[lyrics].cache_dir` (overrides default `~/lyrics` cache)
+  - `[ui].backend` (`terminal`, `x11`)
+  - `[ui].font` (font name/size for GUI backends)
+  - `[ui].title_font` (X11 only)
+  - `[ui].title_weight`, `[ui].title_style` (X11 only, used when `title_font` is empty)
+  - `[ui].opacity` (0.0-1.0)
+  - `[ui].anchor` (`top-right`, `bottom-right`, etc.)
+  - `[ui].offset_x`, `[ui].offset_y` (pixels)
+  - `[ui].padding_x`, `[ui].padding_y` (pixels)
+  - `[ui].fg_color`, `[ui].title_color`, `[ui].dim_color`, `[ui].prev_color`, `[ui].bg_color` (hex)
+  - `[ui].line_spacing` (float, X11 only)
+  - `[ui].title_scale` (float, X11 only)
+  - `[ui].width`, `[ui].height` (pixels, 0 = auto)
+  - `[ui].click_through` (boolean)
   - `[render].bidi` (`fribidi`, `terminal`)
   - `[render].rtl_mode` (`auto`, `on`, `off`)
   - `[render].rtl_align` (`left`, `right`)
   - `[render].rtl_shape` (`auto`, `on`, `off`)
+
+To use the X11 overlay backend, set `[ui].backend = "x11"`. The `[ui]` color and
+padding options also apply to the terminal renderer.
 
 If Arabic words look reversed, set `[render].bidi = "fribidi"` (default) so the
 app locks visual order and avoids double BiDi from terminals.

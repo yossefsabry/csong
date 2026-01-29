@@ -272,6 +272,7 @@ int unicode_visual_order(const char *text, int rtl_mode, int shape_mode,
   if (!out_visual) {
     return -1;
   }
+  (void)bidi_mode;
   *out_visual = NULL;
   if (out_is_rtl) {
     *out_is_rtl = 0;
@@ -300,19 +301,7 @@ int unicode_visual_order(const char *text, int rtl_mode, int shape_mode,
     return 0;
   }
 
-  if (bidi_mode == UNICODE_BIDI_TERMINAL &&
-      shape_mode != UNICODE_RTL_SHAPE_ON) {
-    result = (char *)malloc(strlen(text) + 1);
-    if (!result) {
-      return -1;
-    }
-    snprintf(result, strlen(text) + 1, "%s", text);
-    *out_visual = result;
-    if (out_is_rtl) {
-      *out_is_rtl = 0;
-    }
-    return 0;
-  }
+
 
   if (unicode_to_codepoints(text, &logical, &len) != 0 || len == 0) {
     free(logical);
@@ -370,8 +359,7 @@ int unicode_visual_order(const char *text, int rtl_mode, int shape_mode,
   }
 
   if (shape_mode == UNICODE_RTL_SHAPE_ON ||
-      (shape_mode == UNICODE_RTL_SHAPE_AUTO &&
-       bidi_mode == UNICODE_BIDI_FRIBIDI)) {
+      shape_mode == UNICODE_RTL_SHAPE_AUTO) {
     apply_shape = has_arabic;
   }
 
@@ -380,34 +368,29 @@ int unicode_visual_order(const char *text, int rtl_mode, int shape_mode,
     if (arabic) {
       fribidi_get_joining_types(logical, len, (FriBidiJoiningType *)arabic);
       fribidi_join_arabic(bidi_types, len, levels, arabic);
-      fribidi_shape((FriBidiFlags)(FRIBIDI_FLAGS_DEFAULT | FRIBIDI_FLAGS_ARABIC |
-                                   FRIBIDI_FLAG_SHAPE_ARAB_CONSOLE),
+      fribidi_shape((FriBidiFlags)(FRIBIDI_FLAGS_DEFAULT | FRIBIDI_FLAGS_ARABIC),
                     levels, len, arabic, logical);
     }
   }
 
-  if (bidi_mode == UNICODE_BIDI_FRIBIDI) {
-    visual = (FriBidiChar *)malloc(sizeof(*visual) * len);
-    if (!visual) {
-      free(logical);
-      free(bidi_types);
-      free(brackets);
-      free(levels);
-      free(arabic);
-      return -1;
-    }
-    memcpy(visual, logical, sizeof(*visual) * len);
-    {
-      FriBidiLevel reorder = fribidi_reorder_line(
-          FRIBIDI_FLAGS_DEFAULT, bidi_types, len, 0, base_dir, levels, visual,
-          NULL);
-      (void)reorder;
-    }
-
-    result = unicode_from_codepoints(visual, len);
-  } else {
-    result = unicode_from_codepoints(logical, len);
+  visual = (FriBidiChar *)malloc(sizeof(*visual) * len);
+  if (!visual) {
+    free(logical);
+    free(bidi_types);
+    free(brackets);
+    free(levels);
+    free(arabic);
+    return -1;
   }
+  memcpy(visual, logical, sizeof(*visual) * len);
+  {
+    FriBidiLevel reorder = fribidi_reorder_line(
+        FRIBIDI_FLAGS_DEFAULT, bidi_types, len, 0, base_dir, levels, visual,
+        NULL);
+    (void)reorder;
+  }
+
+  result = unicode_from_codepoints(visual, len);
   if (!result) {
     free(logical);
     free(visual);

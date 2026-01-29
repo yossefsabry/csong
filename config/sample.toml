@@ -1,20 +1,35 @@
 title = "csong"
 interval = 1
 show_plain = false
+
+[ui]
+backend = "terminal"
 font = "Sans 12"
+title_font = ""
+title_weight = "Bold"
+title_style = ""
+opacity = 0.85
+anchor = "bottom-right"
+offset_x = 24
+offset_y = 24
+padding_x = 16
+padding_y = 16
+fg_color = "#f3f0e8"
+title_color = "#ffffff"
+dim_color = "#9a9a9a"
+prev_color = "#d2d2d2"
+bg_color = "#0a0a0a"
+line_spacing = 1.0
+title_scale = 1.0
+click_through = true
+width = 0
+height = 0
 
 [render]
 bidi = "fribidi"
 rtl_mode = "auto"
 rtl_align = "left"
 rtl_shape = "auto"
-color = "#f3f0e8"
-opacity = 0.85
-anchor = "top-right"
-offset_x = 24
-offset_y = 24
-workspace = "all"
-screen = "primary"
 
 [mpd]
 host = "127.0.0.1"

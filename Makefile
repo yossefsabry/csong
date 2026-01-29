@@ -1,6 +1,8 @@
 CC ?= gcc
 CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Iinclude -Ivendor/toml -Ivendor/jsmn -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700
-LDFLAGS ?= -lmpdclient -lcurl -lfribidi -lm
+LDFLAGS ?= -lmpdclient -lcurl -lfribidi -lm -lXft -lfontconfig -lfreetype -lXrender -lX11 -lXfixes -lXext
+
+CFLAGS += $(shell pkg-config --cflags xft 2>/dev/null)
 
 BIN := csong
 
@@ -19,6 +21,8 @@ SRC := \
   src/render/renderer.c \
   src/render/text_layout.c \
   src/render/font.c \
+  src/ui/ui.c \
+  src/ui/x11_backend.c \
   src/x11/window.c \
   src/x11/workspace.c \
   src/x11/events.c \

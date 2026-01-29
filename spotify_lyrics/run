@@ -1,0 +1,4 @@
+#!/bin/bash
+
+
+./build/spotify_lyrics --watch
