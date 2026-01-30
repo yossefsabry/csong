@@ -10,6 +10,7 @@ typedef struct app_config {
   int interval;
   int show_plain;
   char cache_dir[512];
+  double lyrics_lead_seconds;
   char ui_backend[32];
   char ui_font[128];
   char ui_title_font[128];

@@ -11,6 +11,7 @@ Terminal lyrics viewer for MPD/ncmpcpp (X11 overlay planned).
 - libmpdclient
 - libcurl
 - libfribidi
+- libdbus-1 (Spotify desktop on Linux)
 - libX11 (X11 backend)
 - libXft (X11 backend)
 - libXfixes (X11 backend)
@@ -21,6 +22,10 @@ Terminal lyrics viewer for MPD/ncmpcpp (X11 overlay planned).
 ```sh
 make
 ```
+
+## Build (Windows, Spotify support)
+- Visual Studio 2022 with C++/WinRT and Windows 10+ SDK
+- libcurl (vcpkg or system install)
 
 ## Run
 ```sh
@@ -42,6 +47,14 @@ Options:
 - Fetches synced lyrics from lrclib when available; falls back to lyrics.ovh
 - Shows an animated music icon during intros and instrumental gaps (based on LRC)
 - Supports LRC `[offset:+/-ms]` tags
+- Displays lyrics early to improve readability (configurable)
+- Player order: MPD (ncmpcpp) -> Spotify Desktop -> YouTube Music (MPRIS)
+- YouTube Music MPRIS bus names tried (Linux):
+  - org.mpris.MediaPlayer2.youtube-music
+  - org.mpris.MediaPlayer2.youtube_music
+  - org.mpris.MediaPlayer2.YoutubeMusic
+  - org.mpris.MediaPlayer2.ytmdesktop
+  - org.mpris.MediaPlayer2.ytmdesktopapp
 - Optional per-track offsets in `~/lyrics/.offsets`:
   ```
   Dua Lipa - Houdini = -4.0
@@ -55,6 +68,7 @@ Options:
   - `show_plain` (boolean)
   - `[mpd].host`, `[mpd].port`
   - `[lyrics].cache_dir` (overrides default `~/lyrics` cache)
+  - `[lyrics].lead_seconds` (seconds to show lyrics early)
   - `[ui].backend` (`terminal`, `x11`)
   - `[ui].font` (font name/size for GUI backends)
   - `[ui].title_font` (X11 only)

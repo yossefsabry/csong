@@ -78,6 +78,7 @@ void config_default(app_config *out) {
   out->interval = 1;
   out->show_plain = 0;
   out->cache_dir[0] = '\0';
+  out->lyrics_lead_seconds = 1.0;
   snprintf(out->ui_backend, sizeof(out->ui_backend), "%s", "terminal");
   snprintf(out->ui_font, sizeof(out->ui_font), "%s", "Sans 12");
   out->ui_title_font[0] = '\0';
@@ -302,6 +303,11 @@ int config_load(const char *path, app_config *out) {
         trim_spaces(out->cache_dir);
       }
       free(value.u.s);
+    }
+
+    value = toml_double_in(table, "lead_seconds");
+    if (value.ok && value.u.d >= 0.0) {
+      out->lyrics_lead_seconds = value.u.d;
     }
   }
 

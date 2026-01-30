@@ -38,3 +38,4 @@ port = 6600
 [lyrics]
 provider = "auto"
 cache_dir = "~/.cache/csong"
+lead_seconds = 1.0
